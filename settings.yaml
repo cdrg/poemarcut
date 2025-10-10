@@ -1,0 +1,10 @@
+keys:
+  # right-click opens the item price dialog in PoE2
+  rightclick_key: 'f3'
+  # calculate the discounted price and pastes it into the dialog
+  calcprice_key: 'f4'
+  # exit the program
+  exit_key: 'f5'
+logic:
+  # factor to multiply the current price by to get the new discounted price
+  adjustment_factor: 0.9

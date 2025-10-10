@@ -1,0 +1,20 @@
+[project]
+name = "poe2marcut"
+version = "0.1.0"
+description = "Tool to quickly reprice Path of Exile 2 market tab items by a set percentage"
+authors = [
+    {name = "cdr",email = "58159483+cdrg@users.noreply.github.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyautogui (>=0.9.54,<0.10.0)",
+    "pyperclip (>=1.11.0,<2.0.0)",
+    "pynput (>=1.8.1,<2.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
