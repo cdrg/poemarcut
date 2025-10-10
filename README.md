@@ -1,7 +1,7 @@
-# PoE2 Marcut (Path of Exile 2 Market Cut)
+# PoE Marcut (Path of Exile 1 and 2 Market Cut)
 
 ## Usage
-1. Run `poe2marcut`. It will run in the background.
+1. Run `poemarcut`. It will run in the background.
 2. Hover your mouse cursor over an item in a merchant tab
 3. Press `F3` (default) or right-click to open the item price dialog.
 4. Press `F4` (default) to adjust the price text downward by 0.9x (default)
@@ -15,7 +15,7 @@ An existing price of `1` will not be changed. Upcoming: a suggested price in les
 100% [TOS compliant](https://www.pathofexile.com/developer/docs#policy) and legal. The tool only performs one 'action' per key press.
 
 ## Running from the command line
-Recommend running with `poetry`, eg `poetry run python poe2marcut.py`
+Recommend running with `poetry`, eg `poetry run python poemarcut.py`
 
 ## Installation
 Download the repository via one of the options in the green Code button on Github (zip, clone, etc).

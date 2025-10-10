@@ -1,7 +1,7 @@
 [project]
-name = "poe2marcut"
+name = "poemarcut"
 version = "0.1.0"
-description = "Tool to quickly reprice Path of Exile 2 market tab items by a set percentage"
+description = "Tool to quickly reprice Path of Exile (1 and 2) market tab items by a set percentage"
 authors = [
     {name = "cdr",email = "58159483+cdrg@users.noreply.github.com"}
 ]
