@@ -154,7 +154,7 @@ def main() -> int:
         return 1
     
     print(f"PoEMarcut running. Press '{rightclick_key}' or right-click with item hovered to open "
-          f"dialog, then press '{calcprice_key}' to adjust price. Press '{exit_key}' to exit.")
+          f"dialog, then press '{calcprice_key}' to adjust price. Press '{exit_key}' to exit program.")
     print("================================")
 
     # Fetch currency values

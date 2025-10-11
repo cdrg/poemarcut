@@ -16,15 +16,9 @@ For use when existing price is `1`, a list of suggested new prices in less valua
 ## GGG TOS Compliance
 100% [TOS compliant](https://www.pathofexile.com/developer/docs#policy) and legal. The tool only performs one 'action' per key press.
 
-## Running from the command line
-Recommend running with `poetry`, eg `poetry run python poemarcut.py`
-
 ## Installation
-Download the repository via one of the options in the green Code button on Github (zip, clone, etc).
 
-Before first use, initialize poetry's venv by running `poetry install` in the repo directory.
-
-If needed, [install poetry](https://python-poetry.org/docs/) (via pipx) or use your own python venv of choice.
+Download and extract the zip from [Github Releases](https://github.com/cdrg/poemarcut/releases/latest) containing `poemarcut.exe` and `settings.yaml`. 
 
 ## Settings
 Settings such as hotkeys are contained in `settings.yaml`
@@ -38,3 +32,17 @@ Settings such as hotkeys are contained in `settings.yaml`
 
 ## Credits
 Inspired by the proof-of-concept by [@nickycakes](https://github.com/nickycakes/poe2price)
+
+## Advanced
+
+### Running from the command line
+Recommend running with `poetry`, eg `poetry run python poemarcut.py`
+
+- Download the repository via one of the options in the green Code button on Github (zip, clone, etc).
+
+- Before first use, initialize poetry's venv by running `poetry install` in the repo directory.
+
+- If needed, [install poetry](https://python-poetry.org/docs/) (via pipx) or use your own python venv of choice.
+
+### Building
+Run `poetry run build`.
