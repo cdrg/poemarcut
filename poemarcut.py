@@ -1,14 +1,72 @@
 from typing import Dict, Any
 import sys
+import time
+from pathlib import Path
 
+import requests
 import yaml
 from pynput.keyboard import Key, KeyCode, Listener
 import pyautogui
 import pyperclip
 
+def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
+    """Fetch currency prices from cache file or poe.ninja currency API.
+    
+    TODO: PoE1 is not yet supported because poe.ninja does not support it yet.
+
+    Returns:
+        Any: The poe.ninja currency API response as a Python object.
+    """
+    HOUR = 3600
+    POE_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/temp2/overview"
+    CACHE_FILE = Path("currency.yaml")
+
+    data: Any = None
+    # If cache file exists, and either is less than two hours old or if autoupdate is false, 
+    # load data from cache file
+    if CACHE_FILE.exists() and (CACHE_FILE.stat().st_mtime > (time.time() - 2 * HOUR) 
+                                or autoupdate is False):
+        try:
+            with CACHE_FILE.open("r") as f:
+                data = yaml.safe_load(f)
+        except Exception as e:
+            print(f"Error reading cache file: {e}", file=sys.stderr)
+
+        if data["core"] is None:
+            print("Error: Cache file is missing data.", file=sys.stderr)
+            data = None
+    # Otherwise fetch from API
+    else:
+        response: requests.Response = requests.Response()
+        try:
+            response = requests.get(
+                POE_CURRENCY_API_URL,
+                params={"leagueName": league, "overviewName": "Currency"},
+                timeout=10
+            )
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            print(f"HTTP error fetching prices from poe.ninja: {e}", file=sys.stderr)
+        except requests.RequestException as e:
+            print(f"Error fetching prices from poe.ninja: {e}", file=sys.stderr)
+
+        data = response.json()
+        
+        # Save data to cache file if data is valid
+        if data is not None and data["core"]:
+            try:
+                with CACHE_FILE.open("w") as f:
+                    yaml.dump(data, f)
+            except Exception as e:
+                print(f"Error writing to cache file: {e}", file=sys.stderr)
+    
+    print(f"Currency data last updated: {time.ctime(CACHE_FILE.stat().st_mtime)}")
+    return data
+
 def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
     """Convert a string representation of a key to a pynput Key or KeyCode.
-    This is unfortunately necessary because pynput does not provide the from_char method for both."""
+    This is unfortunately necessary because pynput does not provide the from_char method for both.
+    """
     try:
         # Check if it's a special key in the Key enum
         special_key = getattr(Key, key_str.lower(), None)
@@ -59,7 +117,7 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
             return False
             
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
     
     return True
 
@@ -69,38 +127,62 @@ def main() -> int:
         with open('settings.yaml', 'r') as f:
             settings: Dict[str, Dict[str, Any]] = yaml.safe_load(f)
     except FileNotFoundError:
-        print("Error: settings.yaml not found. Exiting.")
+        print("Error: settings.yaml not found. Exiting.", file=sys.stderr)
         return 1
 
     # Attempt to turn key strings from settings yaml into Key or KeyCode objects as appropriate
     try:
         rightclick_key: Key | KeyCode = keyorkeycode_from_str(settings['keys']['rightclick_key'])
     except ValueError as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         return 1
     try:
         calcprice_key: Key | KeyCode = keyorkeycode_from_str(settings['keys']['calcprice_key'])
     except ValueError as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         return 1
     try:
         exit_key: Key | KeyCode = keyorkeycode_from_str(settings['keys']['exit_key'])
     except ValueError as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         return 1
 
     try:
         adjustment_factor: float = float(settings['logic']['adjustment_factor'])
     except (ValueError, TypeError):
-        print(f"Error: Invalid adjustment factor value {settings['adjustment_factor']} in settings.yaml.")
+        print(f"Error: Invalid adjustment factor value {settings['adjustment_factor']} in settings.yaml.", file=sys.stderr)
         return 1
     
-    print(f"PoE2Marcut running. Press '{rightclick_key}' or right-click with item hovered to open "
+    print(f"PoEMarcut running. Press '{rightclick_key}' or right-click with item hovered to open "
           f"dialog, then press '{calcprice_key}' to adjust price. Press '{exit_key}' to exit.")
+    print("================================")
+
+    # Fetch currency values
+    data = get_currency_values(game=settings['currency']['game'], league=settings['currency']['league'], 
+                                        autoupdate=settings['currency']['autoupdate'])
+    # Print currency values if data object is valid
+    if data["core"]:
+        annul_div_val = next((item for item in data.get("lines", []) if item.get("id") == "annul"))["primaryValue"]
+        div_chaos_val = data["core"]["rates"]["chaos"]
+        div_exalt_val = data["core"]["rates"]["exalted"]
+
+        print("Suggested new currency setting if current setting is 1, based on current values:")
+        print(f"{adjustment_factor}x 1 Divine Orb")
+        print(f" = {int(1/annul_div_val*adjustment_factor)} Orb of Annulment ({1/annul_div_val*adjustment_factor:.2f})")
+        print(f" = {int(div_chaos_val*adjustment_factor)} Chaos Orb ({div_chaos_val*adjustment_factor:.2f})")
+        print(f" = {int(div_exalt_val*adjustment_factor)} Exalted Orb ({div_exalt_val*adjustment_factor:.2f})")
+        print(f"{adjustment_factor}x 1 Orb of Annulment")
+        print(f" = {int(div_chaos_val*annul_div_val*adjustment_factor)} Chaos Orb ({div_chaos_val*annul_div_val*adjustment_factor:.2f})")
+        print(f" = {int(div_exalt_val*annul_div_val*adjustment_factor)} Exalted Orb ({div_exalt_val*annul_div_val*adjustment_factor:.2f})")
+        print(f"{adjustment_factor}x 1 Chaos Orb")
+        print(f" = {int(div_exalt_val*1/div_chaos_val*adjustment_factor)} Exalted Orb ({div_exalt_val*1/div_chaos_val*adjustment_factor:.2f})")
+        print(f"{adjustment_factor}x 1 Exalted Orb")
+        print(" = Just vendor it already!")
 
     # Start pynput keyboard listener
     # have to suppress type check because pynput Listener does not follow its own type hint
-    with Listener(on_release=lambda event: on_release(event, rightclick_key, calcprice_key, exit_key, adjustment_factor)) as listener: # type: ignore
+    with Listener(on_release=lambda event: on_release(event, rightclick_key, calcprice_key, exit_key, 
+                                                      adjustment_factor)) as listener: # type: ignore
         listener.join()
 
     return 0

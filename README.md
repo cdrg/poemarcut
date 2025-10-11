@@ -9,7 +9,9 @@
    
 Press `F5` (default) to exit the tool when desired.
 
-An existing price of `1` will not be changed. Upcoming: a suggested price in less valuable currencies will be printed to the terminal, using economy data.
+An existing price of `1` will not be changed.
+
+For use when existing price is `1`, a list of suggested new prices in less valuable currencies is printed to the terminal using current economy data.
 
 ## GGG TOS Compliance
 100% [TOS compliant](https://www.pathofexile.com/developer/docs#policy) and legal. The tool only performs one 'action' per key press.

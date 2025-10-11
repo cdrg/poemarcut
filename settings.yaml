@@ -8,3 +8,10 @@ keys:
 logic:
   # factor to multiply the current price by to get the new discounted price
   adjustment_factor: 0.9
+currency:
+  # autoupdate currency values, or set them manually
+  autoupdate: true
+  # the game to get currency values for, '1' or '2'
+  game: 2
+  # the PoE1/PoE2 league to get currency values for
+  league: 'Rise of the Abyssal'
