@@ -1,6 +1,6 @@
 [project]
 name = "poemarcut"
-version = "0.1.1"
+version = "0.1.2"
 description = "Tool to quickly reprice Path of Exile 1 and 2 market tab items by a set percentage"
 authors = [
     {name = "cdr",email = "58159483+cdrg@users.noreply.github.com"}
@@ -8,12 +8,12 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "pyautogui (>=0.9.54,<0.10.0)",
     "pyperclip (>=1.11.0,<2.0.0)",
     "pynput (>=1.8.1,<2.0.0)",
     "pyyaml (>=6.0.3,<7.0.0)",
     "requests (>=2.32.5,<3.0.0)",
-    "pyinstaller (>=6.16.0,<7.0.0)"
+    "pyinstaller (>=6.16.0,<7.0.0)",
+    "pydirectinput (>=1.0.4,<2.0.0)"
 ]
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 import requests
 import yaml
 from pynput.keyboard import Key, KeyCode, Listener
-import pyautogui
+import pydirectinput
 import pyperclip
 
 def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
@@ -17,14 +17,14 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
     Returns:
         Any: The poe.ninja currency API response as a Python object.
     """
-    HOUR = 3600
+    S_IN_HOUR = 3600
     POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/temp2/overview"
     CACHE_FILE = Path("currency.yaml")
 
     data: Any = None
     # If cache file exists, and either is less than two hours old or if autoupdate is false, 
     # load data from cache file
-    if CACHE_FILE.exists() and (CACHE_FILE.stat().st_mtime > (time.time() - 2 * HOUR) 
+    if CACHE_FILE.exists() and (CACHE_FILE.stat().st_mtime > (time.time() - 2 * S_IN_HOUR) 
                                 or autoupdate is False):
         try:
             with CACHE_FILE.open("r") as f:
@@ -60,7 +60,11 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
             except Exception as e:
                 print(f"Error writing to cache file: {e}", file=sys.stderr)
     
-    print(f"Currency data last updated: {time.ctime(CACHE_FILE.stat().st_mtime)}")
+    file_mtime = CACHE_FILE.stat().st_mtime
+    time_diff = time.time() - file_mtime
+    diff_hours = int(time_diff // S_IN_HOUR)
+    diff_mins = int((time_diff % S_IN_HOUR) // 60)
+    print(f"Currency data last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(file_mtime)})")
     return data
 
 def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
@@ -87,12 +91,13 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
     try:
         if isinstance(key, (Key, KeyCode)) and key == rightclick_key:   
             # Right click to open price dialog
-            pyautogui.rightClick()
-            pyautogui.hotkey('ctrl', 'a')
+            pydirectinput.rightClick()
 
         elif isinstance(key, (Key, KeyCode)) and key == calcprice_key:
             # Copy (pre-selected) price to the clipboard
-            pyautogui.hotkey('ctrl', 'c')
+            pydirectinput.keyDown('ctrl')
+            pydirectinput.press('c')
+            pydirectinput.keyUp('ctrl')
 
             try:
                 current_price: int | None = int(pyperclip.paste())
@@ -107,11 +112,13 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
                 new_price: int = int(current_price * adjustment_factor)
             
                 # Have to press backspace first because of PoE2 paste bug with text selected
-                pyautogui.press('backspace')
+                pydirectinput.press('backspace')
 
                 # Paste the new price from clipboard
                 pyperclip.copy(str(new_price))
-                pyautogui.hotkey('ctrl', 'v')
+                pydirectinput.keyDown('ctrl')
+                pydirectinput.press('v')
+                pydirectinput.keyUp('ctrl')
                 
         elif isinstance(key, (Key, KeyCode)) and key == exit_key:
             print("Exiting...")
