@@ -1,3 +1,6 @@
+# ignore since we want it to be freshly generated when user runs the program
+currency.yaml
+
 # vscode
 .vscode/
 

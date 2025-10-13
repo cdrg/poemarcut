@@ -9,6 +9,8 @@
    
 Press `F5` (default) to exit the tool when desired.
 
+The new price is always rounded down (decimal is truncated), to ensure the price is always reduced, even when the existing price is `2` (which will become `1`).
+
 An existing price of `1` will not be changed.
 
 For use when existing price is `1`, a list of suggested new prices in less valuable currencies is printed to the terminal using current economy data.

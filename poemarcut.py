@@ -18,7 +18,7 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
         Any: The poe.ninja currency API response as a Python object.
     """
     HOUR = 3600
-    POE_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/temp2/overview"
+    POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/temp2/overview"
     CACHE_FILE = Path("currency.yaml")
 
     data: Any = None
@@ -40,7 +40,7 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
         response: requests.Response = requests.Response()
         try:
             response = requests.get(
-                POE_CURRENCY_API_URL,
+                POE2_CURRENCY_API_URL,
                 params={"leagueName": league, "overviewName": "Currency"},
                 timeout=10
             )
@@ -88,6 +88,7 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
         if isinstance(key, (Key, KeyCode)) and key == rightclick_key:   
             # Right click to open price dialog
             pyautogui.rightClick()
+            pyautogui.hotkey('ctrl', 'a')
 
         elif isinstance(key, (Key, KeyCode)) and key == calcprice_key:
             # Copy (pre-selected) price to the clipboard
