@@ -9,38 +9,45 @@ from pynput.keyboard import Key, KeyCode, Listener
 import pydirectinput
 import pyperclip
 
-def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
+def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Dict:
     """Fetch currency prices from cache file or poe.ninja currency API.
     
     TODO: PoE1 is not yet supported because poe.ninja does not support it yet.
 
+    Args:
+        game (int): The game version, either 1 (PoE1) or 2 (PoE2).
+        league (str): The league name to fetch currency prices for.
+        autoupdate (bool, optional): Whether to fetch new prices from API if cache file is older
+                                     than one hour. Default True.
     Returns:
-        Any: The poe.ninja currency API response as a Python object.
+        Dict: The poe.ninja currency API response as a Python object.
     """
     S_IN_HOUR = 3600
+    POE1_CURRENCY_API_URL = "" #"https://poe.ninja/poe1/api/economy/temp2/overview" ?
     POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/temp2/overview"
-    CACHE_FILE = Path("currency.yaml")
+    
+    api_url = POE2_CURRENCY_API_URL if game == 2 else POE1_CURRENCY_API_URL
+    cache_file = Path(f"currency{game}.yaml")
 
-    data: Any = None
-    # If cache file exists, and either is less than two hours old or if autoupdate is false, 
-    # load data from cache file
-    if CACHE_FILE.exists() and (CACHE_FILE.stat().st_mtime > (time.time() - 2 * S_IN_HOUR) 
+    data: dict = {}
+    # If cache file exists, and either is less than one hour old or if autoupdate is false, 
+    # load data from cache file. Currency API only updates every hour.
+    if cache_file.exists() and (cache_file.stat().st_mtime > (time.time() - 1 * S_IN_HOUR) 
                                 or autoupdate is False):
         try:
-            with CACHE_FILE.open("r") as f:
+            with cache_file.open("r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-        except Exception as e:
+        except (yaml.YAMLError, FileNotFoundError) as e:
             print(f"Error reading cache file: {e}", file=sys.stderr)
 
-        if data["core"] is None:
+        if "core" not in data:
             print("Error: Cache file is missing data.", file=sys.stderr)
-            data = None
     # Otherwise fetch from API
     else:
         response: requests.Response = requests.Response()
         try:
             response = requests.get(
-                POE2_CURRENCY_API_URL,
+                api_url,
                 params={"leagueName": league, "overviewName": "Currency"},
                 timeout=10
             )
@@ -53,14 +60,14 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
         data = response.json()
         
         # Save data to cache file if data is valid
-        if data is not None and data["core"]:
+        if "core" in data:
             try:
-                with CACHE_FILE.open("w") as f:
-                    yaml.dump(data, f)
-            except Exception as e:
+                with cache_file.open("w", encoding="utf-8") as f:
+                    yaml.safe_dump(data, f)
+            except (yaml.YAMLError, UnicodeDecodeError) as e:
                 print(f"Error writing to cache file: {e}", file=sys.stderr)
     
-    file_mtime = CACHE_FILE.stat().st_mtime
+    file_mtime = cache_file.stat().st_mtime
     time_diff = time.time() - file_mtime
     diff_hours = int(time_diff // S_IN_HOUR)
     diff_mins = int((time_diff % S_IN_HOUR) // 60)
@@ -70,6 +77,11 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Any:
 def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
     """Convert a string representation of a key to a pynput Key or KeyCode.
     This is unfortunately necessary because pynput does not provide the from_char method for both.
+
+    Args:
+        key_str (str): The string representation of the key, e.g. 'f3', 'a', etc.
+    Returns:
+        Key | KeyCode: The corresponding Key or KeyCode object.
     """
     try:
         # Check if it's a special key in the Key enum
@@ -84,7 +96,16 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
 
 def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcprice_key: Key | KeyCode,
                exit_key: Key | KeyCode, adjustment_factor: float) -> bool:
-    """Handle key release events."""
+    """Handle pynput key release events.
+    Args:
+        key (Key | KeyCode | None): The released key.
+        rightclick_key (Key | KeyCode): The key to send right-click.
+        calcprice_key (Key | KeyCode): The key to activate price calculation + replacement.
+        exit_key (Key | KeyCode): The key to exit the program.
+        adjustment_factor (float): The factor by which to adjust the price.
+    Returns:
+        bool: True to continue listening, False to stop.
+    """
     if key is None:
         return True
 
@@ -158,7 +179,15 @@ def main() -> int:
     try:
         adjustment_factor: float = float(settings['logic']['adjustment_factor'])
     except (ValueError, TypeError):
-        print(f"Error: Invalid adjustment factor value {settings['adjustment_factor']} in settings.yaml.", file=sys.stderr)
+        print(f"Error: Invalid adjustment factor value {settings['logic']['adjustment_factor']} in settings.yaml.", file=sys.stderr)
+        return 1
+    
+    try:
+        game: int = int(settings['currency']['game'])
+        if game not in (1, 2):
+            raise ValueError("Game must be 1 (PoE1) or 2 (PoE2).")
+    except (ValueError, TypeError):
+        print(f"Error: Invalid value for game {settings['currency']['game']} in settings.yaml.", file=sys.stderr)
         return 1
     
     print(f"PoEMarcut running. Press '{rightclick_key}' or right-click with item hovered to open "
@@ -166,10 +195,10 @@ def main() -> int:
     print("================================")
 
     # Fetch currency values
-    data = get_currency_values(game=settings['currency']['game'], league=settings['currency']['league'], 
+    data = get_currency_values(game=game, league=settings['currency']['league'], 
                                         autoupdate=settings['currency']['autoupdate'])
-    # Print currency values if data object is valid
-    if data["core"]:
+    # If if data object is valid, print currency values for suggested new price
+    if "core" in data:
         annul_div_val = next((item for item in data.get("lines", []) if item.get("id") == "annul"))["primaryValue"]
         div_chaos_val = data["core"]["rates"]["chaos"]
         div_exalt_val = data["core"]["rates"]["exalted"]
