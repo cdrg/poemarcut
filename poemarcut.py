@@ -3,11 +3,13 @@
 Suggests new prices for 1-unit currency items based on current poe.ninja currency prices.
 """
 
+import platform
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
+import pyautogui
 import pydirectinput
 import pyperclip
 import requests
@@ -126,13 +128,16 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
     try:
         if isinstance(key, (Key, KeyCode)) and key == rightclick_key:   
             # Right click to open price dialog
-            pydirectinput.rightClick()
+            # prefer to use pydirectinput because pyautogui.rightclick doesn't work properly in the game
+            if platform.system() == "Windows":
+                pydirectinput.rightClick()
+            else:
+                pyautogui.rightClick() # this doesn't work on Windows, untested on other platforms
 
         elif isinstance(key, (Key, KeyCode)) and key == calcprice_key:
             # Copy (pre-selected) price to the clipboard
-            pydirectinput.keyDown('ctrl')
-            pydirectinput.press('c')
-            pydirectinput.keyUp('ctrl')
+            # use pyautogui because it sends keys faster
+            pyautogui.hotkey('ctrl', 'c')
 
             try:
                 current_price: int | None = int(pyperclip.paste())
@@ -146,14 +151,12 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
                 # Calculate the new discounted price
                 new_price: int = int(current_price * adjustment_factor)
 
-                # Have to press backspace first because of PoE2 paste bug with text selected
-                pydirectinput.press('backspace')
+                # Have to press backspace first because of PoE paste bug with text selected
+                pyautogui.press('backspace')
 
                 # Paste the new price from clipboard
                 pyperclip.copy(str(new_price))
-                pydirectinput.keyDown('ctrl')
-                pydirectinput.press('v')
-                pydirectinput.keyUp('ctrl')
+                pyautogui.hotkey('ctrl', 'v')
 
         elif isinstance(key, (Key, KeyCode)) and key == exit_key:
             print("Exiting...")

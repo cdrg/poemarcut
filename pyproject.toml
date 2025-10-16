@@ -13,7 +13,8 @@ dependencies = [
     "pyyaml (>=6.0.3,<7.0.0)",
     "requests (>=2.32.5,<3.0.0)",
     "pyinstaller (>=6.16.0,<7.0.0)",
-    "pydirectinput (>=1.0.4,<2.0.0)"
+    "pydirectinput (>=1.0.4,<2.0.0)",
+    "pyautogui (>=0.9.54,<0.10.0)"
 ]
 
 
