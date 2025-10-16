@@ -1,12 +1,16 @@
-import PyInstaller.__main__
+"""PyInstaller build script."""
 import shutil
 from pathlib import Path
+
+import PyInstaller.__main__
+
 #import os
 
 HERE = Path(__file__).parent.absolute()
 path_to_main = str(HERE / 'poemarcut.py')
 
 def install():
+    """Build release executable using PyInstaller and package it + config file into a zip file."""
     # clean up old dist directory
     if (HERE / 'dist').exists():
         shutil.rmtree(HERE / 'dist')

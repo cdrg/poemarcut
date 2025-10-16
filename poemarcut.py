@@ -1,31 +1,39 @@
-from typing import Dict, Any
+"""Tool to quickly reprice Path of Exile 1/2 market tab items.
+
+Suggests new prices for 1-unit currency items based on current poe.ninja currency prices.
+"""
+
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
+import pydirectinput
+import pyperclip
 import requests
 import yaml
 from pynput.keyboard import Key, KeyCode, Listener
-import pydirectinput
-import pyperclip
 
-def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Dict:
+
+def get_currency_values(game: int, league: str, autoupdate: bool = True) -> dict:
     """Fetch currency prices from cache file or poe.ninja currency API.
-    
-    TODO: PoE1 is not yet supported because poe.ninja does not support it yet.
+
+    TODO: PoE1 is not supported yet because poe.ninja does not support PoE1 exchange yet.
 
     Args:
         game (int): The game version, either 1 (PoE1) or 2 (PoE2).
         league (str): The league name to fetch currency prices for.
         autoupdate (bool, optional): Whether to fetch new prices from API if cache file is older
                                      than one hour. Default True.
+
     Returns:
         Dict: The poe.ninja currency API response as a Python object.
+
     """
     S_IN_HOUR = 3600
     POE1_CURRENCY_API_URL = "" #"https://poe.ninja/poe1/api/economy/temp2/overview" ?
     POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/temp2/overview"
-    
+
     api_url = POE2_CURRENCY_API_URL if game == 2 else POE1_CURRENCY_API_URL
     cache_file = Path(f"currency{game}.yaml")
 
@@ -58,7 +66,7 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Dict
             print(f"Error fetching prices from poe.ninja: {e}", file=sys.stderr)
 
         data = response.json()
-        
+
         # Save data to cache file if data is valid
         if "core" in data:
             try:
@@ -66,7 +74,7 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Dict
                     yaml.safe_dump(data, f)
             except (yaml.YAMLError, UnicodeDecodeError) as e:
                 print(f"Error writing to cache file: {e}", file=sys.stderr)
-    
+
     file_mtime = cache_file.stat().st_mtime
     time_diff = time.time() - file_mtime
     diff_hours = int(time_diff // S_IN_HOUR)
@@ -76,12 +84,15 @@ def get_currency_values(game: int, league: str, autoupdate: bool = True) -> Dict
 
 def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
     """Convert a string representation of a key to a pynput Key or KeyCode.
+
     This is unfortunately necessary because pynput does not provide the from_char method for both.
 
     Args:
         key_str (str): The string representation of the key, e.g. 'f3', 'a', etc.
+
     Returns:
         Key | KeyCode: The corresponding Key or KeyCode object.
+
     """
     try:
         # Check if it's a special key in the Key enum
@@ -97,14 +108,17 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
 def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcprice_key: Key | KeyCode,
                exit_key: Key | KeyCode, adjustment_factor: float) -> bool:
     """Handle pynput key release events.
+
     Args:
         key (Key | KeyCode | None): The released key.
         rightclick_key (Key | KeyCode): The key to send right-click.
         calcprice_key (Key | KeyCode): The key to activate price calculation + replacement.
         exit_key (Key | KeyCode): The key to exit the program.
         adjustment_factor (float): The factor by which to adjust the price.
+
     Returns:
         bool: True to continue listening, False to stop.
+
     """
     if key is None:
         return True
@@ -124,14 +138,14 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
                 current_price: int | None = int(pyperclip.paste())
             except ValueError:
                 current_price: int | None = None
-            
+
             # If the clipboard does not contain a valid integer or is 1 or less, do nothing
             if current_price is None or current_price <= 1:
                 return True
             else:
                 # Calculate the new discounted price
                 new_price: int = int(current_price * adjustment_factor)
-            
+
                 # Have to press backspace first because of PoE2 paste bug with text selected
                 pydirectinput.press('backspace')
 
@@ -140,21 +154,22 @@ def on_release(key: Key | KeyCode | None, rightclick_key: Key | KeyCode, calcpri
                 pydirectinput.keyDown('ctrl')
                 pydirectinput.press('v')
                 pydirectinput.keyUp('ctrl')
-                
+
         elif isinstance(key, (Key, KeyCode)) and key == exit_key:
             print("Exiting...")
             return False
-            
+
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-    
+
     return True
 
 def main() -> int:
+    """Check settings, fetch and print currency values, then start keyboard listener."""
     # Load settings from settings.yaml file.
     try:
-        with open('settings.yaml', 'r') as f:
-            settings: Dict[str, Dict[str, Any]] = yaml.safe_load(f)
+        with open('settings.yaml') as f:
+            settings: dict[str, dict[str, Any]] = yaml.safe_load(f)
     except FileNotFoundError:
         print("Error: settings.yaml not found. Exiting.", file=sys.stderr)
         return 1
@@ -181,7 +196,7 @@ def main() -> int:
     except (ValueError, TypeError):
         print(f"Error: Invalid adjustment factor value {settings['logic']['adjustment_factor']} in settings.yaml.", file=sys.stderr)
         return 1
-    
+
     try:
         game: int = int(settings['currency']['game'])
         if game not in (1, 2):
@@ -189,7 +204,7 @@ def main() -> int:
     except (ValueError, TypeError):
         print(f"Error: Invalid value for game {settings['currency']['game']} in settings.yaml.", file=sys.stderr)
         return 1
-    
+
     print(f"PoEMarcut running. Press '{rightclick_key}' or right-click with item hovered to open "
           f"dialog, then press '{calcprice_key}' to adjust price. Press '{exit_key}' to exit program.")
     print("================================")
@@ -199,7 +214,7 @@ def main() -> int:
                                         autoupdate=settings['currency']['autoupdate'])
     # If if data object is valid, print currency values for suggested new price
     if "core" in data:
-        annul_div_val = next((item for item in data.get("lines", []) if item.get("id") == "annul"))["primaryValue"]
+        annul_div_val = next(item for item in data.get("lines", []) if item.get("id") == "annul")["primaryValue"]
         div_chaos_val = data["core"]["rates"]["chaos"]
         div_exalt_val = data["core"]["rates"]["exalted"]
 
@@ -212,7 +227,11 @@ def main() -> int:
         print(f" = {int(div_chaos_val*annul_div_val*adjustment_factor)} Chaos Orb ({div_chaos_val*annul_div_val*adjustment_factor:.2f})")
         print(f" = {int(div_exalt_val*annul_div_val*adjustment_factor)} Exalted Orb ({div_exalt_val*annul_div_val*adjustment_factor:.2f})")
         print(f"{adjustment_factor}x 1 Chaos Orb")
-        print(f" = {int(div_exalt_val*1/div_chaos_val*adjustment_factor)} Exalted Orb ({div_exalt_val*1/div_chaos_val*adjustment_factor:.2f})")
+        print(f" = {int(div_exalt_val*1/div_chaos_val*adjustment_factor)} Exalted Orb ({div_exalt_val*1/div_chaos_val*adjustment_factor:.2f})", end="")
+        if div_exalt_val > 500:
+            print("... but you should really vendor it")
+        else:
+            print("")
         print(f"{adjustment_factor}x 1 Exalted Orb")
         print(" = Just vendor it already!")
 
