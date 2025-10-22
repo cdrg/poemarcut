@@ -53,5 +53,15 @@ Recommend running with `poetry`, eg `poetry run python poemarcut.py`
 
 - If needed, [install poetry](https://python-poetry.org/docs/) (via pipx) or use your own python venv of choice.
 
+#### Full Windows instructions
+1. Install Python 3.12 or 3.13 from the Microsoft Store app, if you don't already have it installed.
+2. Open terminal
+3. `python -m pip install --user pipx` to get pipx
+4. `.\pipx.exe ensurepath`
+5. `pipx install poetry` to get poetry
+6. Download/clone source from github somewhere
+7. `poetry install` to initialize poetry environment for the folder
+8. `poetry run python poemarcut.py`
+
 ### Building
 Run `poetry run build`.
