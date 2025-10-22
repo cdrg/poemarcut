@@ -1,6 +1,6 @@
 [project]
 name = "poemarcut"
-version = "0.2.0"
+version = "0.2.1"
 description = "Tool to quickly reprice Path of Exile 1 and 2 merchant tab items by a set percentage"
 authors = [
     {name = "cdr",email = "58159483+cdrg@users.noreply.github.com"}
