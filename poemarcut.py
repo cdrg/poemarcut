@@ -323,9 +323,9 @@ def main() -> int:
             return 1
 
     print("> PoEMarcut running <")
-    print(f"Press '{keys['rightclick_key']}' or right-click with item hovered to open dialog, then... ")
+    print(f"Press '{keys['rightclick_key']}' or 'right-click' with item hovered to open dialog, then... ")
     print(f"press '{keys['calcprice_key']}' to adjust price, then... ")
-    print(f"press '{keys['enter_key']}' to set the new price.")
+    print(f"press '{keys['enter_key']}' or 'enter' to set the new price.")
     print(f"Press '{keys['exit_key']}' to exit the program.")
     print("================================")
 
