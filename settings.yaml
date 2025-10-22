@@ -1,17 +1,22 @@
 keys:
-  # right-click opens the item price dialog in PoE2
-  rightclick_key: 'f3'
-  # calculate the discounted price and pastes it into the dialog
-  calcprice_key: 'f4'
-  # exit the program
-  exit_key: 'f5'
+  # 'right-click' opens the item price dialog in market tabs
+  rightclick_key: 'f2'
+  # copies the old price, calculates new, and pastes new price into the dialog
+  calcprice_key: 'f3'
+  # 'enter' key confirms the new price in the dialog
+  enter_key: 'f4'
+  # exit the program. many tools use f5 for '/hideout', so f6 is default.
+  exit_key: 'f6'
 logic:
   # factor to multiply the current price by to get the new discounted price
   adjustment_factor: 0.9
 currency:
-  # autoupdate currency values, or set them manually
+  # true to update currency values from poe.ninja, false set values manually in '[league].yaml'
   autoupdate: true
-  # the game to get currency values for, '1' or '2'
-  game: 2
-  # the PoE1/PoE2 league to get currency values for
-  league: 'Rise of the Abyssal'
+  # the game(s) to output currency values for, '1' and/or '2', comma-separated
+  games: '1,2'
+  # the PoE1 league to get currency values for
+  poe1league: 'Keepers'
+  #poe1league: 'Mercenaries'
+  # the PoE2 league to get currency values for
+  poe2league: 'Rise of the Abyssal'

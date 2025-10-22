@@ -1,5 +1,7 @@
-# ignore since we want it to be freshly generated when user runs the program
-currency*.yaml
+# ignore .yaml files that are not settings.yaml
+# we want cache .yaml to be freshly generated when user runs the program
+*.yaml
+!settings.yaml
 
 # vscode
 .vscode/
