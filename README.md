@@ -27,6 +27,8 @@ For use when existing price is `1`, a list of suggested new prices in less valua
 
 Download and extract the zip from [Github Releases](https://github.com/cdrg/poemarcut/releases/latest) containing `poemarcut.exe` and `settings.yaml`. Run `poemarcut.exe`.
 
+Alternatively [run the source from the command line](https://github.com/cdrg/poemarcut#running-from-the-command-line) with python.
+
 ## Settings
 Settings such as hotkeys, price adjustment percentage, leagues, etc are contained in `settings.yaml`. 
 
