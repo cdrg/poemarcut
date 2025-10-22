@@ -179,7 +179,8 @@ def on_release(  # noqa: PLR0913
             pyautogui.hotkey("ctrl", "c")
 
             try:
-                current_price: int | None = int(pyperclip.paste())
+                # Get current price from clipboard. Strip any thousands separators (locale dependent).
+                current_price: int | None = int(pyperclip.paste().replace(",", "").replace(".", ""))
             except ValueError:
                 current_price: int | None = None
 
