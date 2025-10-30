@@ -9,14 +9,15 @@ Instead, quickly adjust each item downward by a set percentage using PoEMarcut. 
 1. Run `poemarcut`. It will run in the background.
 2. Hover your mouse cursor over an item in a merchant tab.
 3. Press `F2` (default) or `right-click` to open the item price dialog.
-4. Press `F3` (default) to adjust the price text downward by 0.9x (default).
-5. Press `F4` (default) or `return` to set the price.
+4. Press `F3` (default) to adjust the price text downward by 0.9x (default) and close the dialog.
    
 Press `F6` (default) to exit the tool when desired.
 
 The new price is always rounded down (decimal is truncated), to ensure the price is always reduced, even when the existing price is `2` (which will become `1`).
 
 An existing price of `1` will not be changed.
+
+An optional setting `min_actual_factor` will prevent very low prices from being reduced further, eg `0.6` will prevent `2` from being reduced to `1` (0.5 actual, 0.6 minimum).
 
 For use when existing price is `1`, a list of suggested new prices in less valuable currencies is printed to the terminal using current poe.ninja economy data.
 
@@ -32,7 +33,7 @@ Alternatively [run the source from the command line](https://github.com/cdrg/poe
 ## Settings
 Settings such as hotkeys, price adjustment percentage, leagues, etc are contained in `settings.yaml`. 
 
-This plain-text file can be edited with any text editor.
+This plain-text file can be edited with any text editor and contains descriptions of each setting.
 
 ## Links
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I7ROZFD)
