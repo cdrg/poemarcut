@@ -16,7 +16,6 @@ currency:
   # the game(s) to output currency values for, '1' and/or '2', comma-separated
   games: '1,2'
   # the PoE1 league to get currency values for
-  poe1league: 'Keepers'
-  #poe1league: 'Mercenaries'
+  poe1league: 'Keepers of the Flame'
   # the PoE2 league to get currency values for
   poe2league: 'Rise of the Abyssal'

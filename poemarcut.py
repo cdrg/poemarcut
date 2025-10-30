@@ -20,9 +20,10 @@ import yaml
 from pynput.keyboard import Key, KeyCode, Listener
 
 S_IN_HOUR = 3600
-POE1_CURRENCY_API_URL = "https://poe.ninja/api/data/currencyoverview"
-POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/temp2/overview"
-POE2_EX_WORTHLESS_VAL = 500  # if div<=>ex is above this value, ex is worthless
+# "https://poe.ninja/api/data/currencyoverview" # old poe1 stash-based url  # noqa: ERA001
+POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/currencyexchange/overview"
+POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/currencyexchange/overview"
+POE2_EX_WORTHLESS_VAL = 500  # if poe2 div<=>ex is above this value, ex is worthless
 
 
 def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
@@ -42,6 +43,7 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
     cache_file = Path(f"{league}.yaml")
 
     data: dict = {}
+    http_error: bool = False
     # If cache file exists, and either is less than one hour old or if "update" is false,
     # load data from cache file.
     if cache_file.exists() and (cache_file.stat().st_mtime > (time.time() - 1 * S_IN_HOUR) or update is False):
@@ -53,10 +55,7 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
 
         if (
             "lines" not in data
-            or (
-                game == "1"
-                and not any((item.get("currencyTypeName") == "Divine Orb") for item in data.get("lines", []))
-            )
+            or (game == "1" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
             or (game == "2" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
         ):
             print("Error: Cache file for 'PoE{game} {league}' is missing data.", file=sys.stderr)
@@ -67,7 +66,7 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
             if game == "1":
                 response = requests.get(
                     POE1_CURRENCY_API_URL,
-                    params={"league": league, "type": "Currency"},
+                    params={"leagueName": league, "type": "Currency"},
                     timeout=10,
                 )
             else:
@@ -77,31 +76,34 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
             response.raise_for_status()
         except requests.HTTPError as e:
             print(f"HTTP error fetching prices from poe.ninja: {e}", file=sys.stderr)
+            http_error = True
         except requests.RequestException as e:
             print(f"Error fetching prices from poe.ninja: {e}", file=sys.stderr)
 
-        data = response.json()
-
-        # Validate expected items in data
-        if (
-            "lines" not in data
-            or (
-                game == "1"
-                and not any((item.get("currencyTypeName") == "Divine Orb") for item in data.get("lines", []))
-            )
-            or (game == "2" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
-        ):
-            print(
-                f"Error: Invalid data received from API for PoE{game} '{league}' league. This is expected if league does not exist.",
-                file=sys.stderr,
-            )
-        # Write data to cache file if data is valid
-        else:
+        if not http_error:  # don't bother trying to get data if HTTP error occurred
             try:
-                with cache_file.open("w", encoding="utf-8") as f:
-                    yaml.safe_dump(data, f)
-            except (yaml.YAMLError, UnicodeDecodeError) as e:
-                print(f"Error writing to cache file: {e}", file=sys.stderr)
+                data = response.json()
+            except (ValueError, requests.exceptions.JSONDecodeError) as e:
+                print(f"No JSON data in poe.ninja response: {e}", file=sys.stderr)
+                data = {}
+
+            # Validate expected items in data
+            if (
+                "lines" not in data
+                or (game == "1" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
+                or (game == "2" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
+            ):
+                print(
+                    f"Error: Invalid data received from API for PoE{game} '{league}' league. This is expected if league does not exist.",
+                    file=sys.stderr,
+                )
+            # Write data to cache file if data is valid
+            else:
+                try:
+                    with cache_file.open("w", encoding="utf-8") as f:
+                        yaml.safe_dump(data, f)
+                except (yaml.YAMLError, UnicodeDecodeError) as e:
+                    print(f"Error writing to cache file: {e}", file=sys.stderr)
 
     if cache_file.exists() and "lines" in data:
         file_mtime = cache_file.stat().st_mtime
@@ -222,11 +224,9 @@ def print_poe1_currency_suggestions(adjustment_factor: float, data: dict) -> Non
 
     """
     if "lines" in data:
-        div_chaos_val = next(item for item in data.get("lines", []) if item.get("currencyTypeName") == "Divine Orb")[
-            "chaosEquivalent"
-        ]
+        chaos_div_val: float = next(item for item in data.get("lines", []) if item.get("id") == "chaos")["primaryValue"]
 
-        div_chaos_adj: float = div_chaos_val * adjustment_factor
+        div_chaos_adj: float = 1 / chaos_div_val * adjustment_factor
         print("PoE1 suggested new currency setting if current setting is 1, based on current values:")
         print(f"{adjustment_factor}x 1 Divine Orb")
         print(f" = {int(div_chaos_adj)} Chaos Orb ({div_chaos_adj:.2f})")
@@ -335,11 +335,7 @@ def main() -> int:
         league = settings["currency"]["poe1league"] if game == "1" else settings["currency"]["poe2league"]
         data = get_currency_values(game=game, league=league, update=settings["currency"]["autoupdate"])
         # If data object is valid, print suggested currency values for case where current price is 1
-        if (
-            game == "1"
-            and "lines" in data
-            and any((item.get("currencyTypeName") == "Divine Orb") for item in data.get("lines", []))
-        ):
+        if game == "1" and "lines" in data and any((item.get("id") == "divine") for item in data.get("lines", [])):
             print_poe1_currency_suggestions(adjustment_factor, data)
             print()
         elif game == "2" and "lines" in data and any((item.get("id") == "divine") for item in data.get("lines", [])):
