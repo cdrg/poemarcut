@@ -19,6 +19,8 @@ import requests
 import yaml
 from pynput.keyboard import Key, KeyCode, Listener
 
+__version__ = "0.3.0"
+
 S_IN_HOUR = 3600
 # "https://poe.ninja/api/data/currencyoverview" # old poe1 stash-based url  # noqa: ERA001
 POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/currencyexchange/overview"
@@ -82,14 +84,21 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
 
     # Fetch from API if not fetched from cache file
     response: requests.Response | None = None
+    headers = {"User-Agent": "poemarcut/" + __version__ + " (+https://github.com/cdrg/poemarcut)"}
     try:
         if game == "1":
             response = requests.get(
-                POE1_CURRENCY_API_URL, params={"leagueName": league, "type": "Currency"}, timeout=10
+                POE1_CURRENCY_API_URL,
+                params={"leagueName": league, "type": "Currency"},
+                headers=headers,
+                timeout=10,
             )
         else:
             response = requests.get(
-                POE2_CURRENCY_API_URL, params={"leagueName": league, "overviewName": "Currency"}, timeout=10
+                POE2_CURRENCY_API_URL,
+                params={"leagueName": league, "overviewName": "Currency"},
+                headers=headers,
+                timeout=10,
             )
         response.raise_for_status()
     except requests.RequestException as e:
