@@ -152,6 +152,7 @@ def on_release(  # noqa: C901, PLR0913
     enter_key: Key | KeyCode,
     exit_key: Key | KeyCode,
     adjustment_factor: float,
+    min_actual_factor: float,
     *,
     calcprice_enter: bool = True,
 ) -> bool:
@@ -163,8 +164,9 @@ def on_release(  # noqa: C901, PLR0913
         calcprice_key (Key | KeyCode): The key to activate price calculation + replacement.
         enter_key (Key | KeyCode): The key to send 'enter' key to the new price.
         exit_key (Key | KeyCode): The key to exit the program.
-        calcprice_enter (bool): Whether to press enter after price calculation.
         adjustment_factor (float): The factor by which to adjust the price.
+        min_actual_factor (float): The minimum allowed actual adjustment factor.
+        calcprice_enter (bool): Whether to press enter after price calculation.
 
     Returns:
         bool: True to continue listening, False to stop.
@@ -189,13 +191,16 @@ def on_release(  # noqa: C901, PLR0913
 
             try:
                 # Get current price from clipboard. Strip any thousands separators (locale dependent).
-                current_price: int | None = int(pyperclip.paste().replace(",", "").replace(".", ""))
+                current_price: int = int(pyperclip.paste().replace(",", "").replace(".", ""))
             except ValueError:
-                current_price: int | None = None
+                current_price: int = 0
 
-            # If the clipboard does not contain a valid integer or is 1 or less, do nothing
-            if current_price is None or current_price <= 1:
+            actual_adjustment_factor: float = int(current_price * adjustment_factor) / current_price
+            # If the clipboard does not contain a valid integer, or is 1 or less,
+            # or the actual adjustment factor would be below the minimum, do nothing
+            if current_price <= 1 or actual_adjustment_factor < min_actual_factor:
                 return True
+
             # Calculate the new discounted price
             new_price: int = int(current_price * adjustment_factor)
 
@@ -294,7 +299,7 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
         print("Error: Invalid data, could not determine currency suggestions for PoE2.", file=sys.stderr)
 
 
-def main() -> int:  # noqa: C901
+def main() -> int:  # noqa: C901, PLR0912
     """Read settings from file, fetch and print currency values, then start keyboard listener."""
     # Load settings from settings.yaml file.
     try:
@@ -320,6 +325,16 @@ def main() -> int:  # noqa: C901
     except (ValueError, TypeError):
         print(
             f"Error: Invalid adjustment factor value {settings['logic']['adjustment_factor']} in settings.yaml.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Attempt to parse adjustment factor
+    try:
+        min_actual_factor: float = float(settings["logic"]["min_actual_factor"])
+    except (ValueError, TypeError):
+        print(
+            f"Error: Invalid max adjustment value {settings['logic']['min_actual_factor']} in settings.yaml.",
             file=sys.stderr,
         )
         return 1
@@ -370,6 +385,7 @@ def main() -> int:  # noqa: C901
             keys["enter_key"],
             keys["exit_key"],
             adjustment_factor,
+            min_actual_factor=min_actual_factor,
             calcprice_enter=settings["currency"]["autoupdate"],
         )  # type: ignore[attr-defined]
     ) as listener:
