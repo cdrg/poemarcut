@@ -26,6 +26,23 @@ POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/currencyexchange/ove
 POE2_EX_WORTHLESS_VAL = 500  # if poe2 div<=>ex is above this value, ex is worthless
 
 
+def print_last_updated(game: str, league: str, file_mtime: float) -> None:
+    """Print when the currency data was last updated from the cache file.
+
+    Args:
+        game (str): The game version, either '1' (PoE1) or '2' (PoE2).
+        league (str): The league name.
+        file_mtime (float): The mtime of the cache file.
+
+    """
+    time_diff = time.time() - file_mtime
+    diff_hours = int(time_diff // S_IN_HOUR)
+    diff_mins = int((time_diff % S_IN_HOUR) // 60)
+    print(
+        f"(PoE{game} currency data for '{league}' last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(file_mtime)}))"
+    )
+
+
 def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
     """Fetch currency prices from cache file or poe.ninja currency API.
 
@@ -43,76 +60,63 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
     cache_file = Path(f"{league}.yaml")
 
     data: dict = {}
-    http_error: bool = False
-    # If cache file exists, and either is less than one hour old or if "update" is false,
-    # load data from cache file.
-    if cache_file.exists() and (cache_file.stat().st_mtime > (time.time() - 1 * S_IN_HOUR) or update is False):
+
+    # Try cache file first. GGG currency exchange API data updates only hourly, so no need to fetch more often than that
+    try:
+        cache_mtime = cache_file.stat().st_mtime if cache_file.exists() else 0
+    except OSError:
+        cache_mtime = 0
+
+    if cache_mtime and (cache_mtime > (time.time() - S_IN_HOUR) or update is False):
         try:
             with cache_file.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
+                data = yaml.safe_load(f) or {}
         except (yaml.YAMLError, FileNotFoundError) as e:
             print(f"Error reading cache file: {e}", file=sys.stderr)
+            data = {}
 
-        if (
-            "lines" not in data
-            or (game == "1" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
-            or (game == "2" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
-        ):
-            print("Error: Cache file for 'PoE{game} {league}' is missing data.", file=sys.stderr)
-    # Otherwise fetch from API
-    else:
-        response: requests.Response = requests.Response()
-        try:
-            if game == "1":
-                response = requests.get(
-                    POE1_CURRENCY_API_URL,
-                    params={"leagueName": league, "type": "Currency"},
-                    timeout=10,
-                )
-            else:
-                response = requests.get(
-                    POE2_CURRENCY_API_URL, params={"leagueName": league, "overviewName": "Currency"}, timeout=10
-                )
-            response.raise_for_status()
-        except requests.HTTPError as e:
-            print(f"HTTP error fetching prices from poe.ninja: {e}", file=sys.stderr)
-            http_error = True
-        except requests.RequestException as e:
-            print(f"Error fetching prices from poe.ninja: {e}", file=sys.stderr)
+        has_divine = any((item.get("id") == "divine") for item in data.get("lines", []))
+        if "lines" in data and has_divine:
+            print_last_updated(game, league, cache_mtime)
+            return data
 
-        if not http_error:  # don't bother trying to get data if HTTP error occurred
-            try:
-                data = response.json()
-            except (ValueError, requests.exceptions.JSONDecodeError) as e:
-                print(f"No JSON data in poe.ninja response: {e}", file=sys.stderr)
-                data = {}
+    # Fetch from API if not fetched from cache file
+    response: requests.Response | None = None
+    try:
+        if game == "1":
+            response = requests.get(
+                POE1_CURRENCY_API_URL, params={"leagueName": league, "type": "Currency"}, timeout=10
+            )
+        else:
+            response = requests.get(
+                POE2_CURRENCY_API_URL, params={"leagueName": league, "overviewName": "Currency"}, timeout=10
+            )
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Error fetching prices from poe.ninja: {e}", file=sys.stderr)
+        response = None
 
-            # Validate expected items in data
-            if (
-                "lines" not in data
-                or (game == "1" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
-                or (game == "2" and not any((item.get("id") == "divine") for item in data.get("lines", [])))
-            ):
-                print(
-                    f"Error: Invalid data received from API for PoE{game} '{league}' league. This is expected if league does not exist.",
-                    file=sys.stderr,
-                )
-            # Write data to cache file if data is valid
-            else:
-                try:
-                    with cache_file.open("w", encoding="utf-8") as f:
-                        yaml.safe_dump(data, f)
-                except (yaml.YAMLError, UnicodeDecodeError) as e:
-                    print(f"Error writing to cache file: {e}", file=sys.stderr)
+    try:
+        data = response.json() if response is not None else {}
+    except (ValueError, requests.exceptions.JSONDecodeError) as e:
+        print(f"No JSON data in poe.ninja response: {e}", file=sys.stderr)
+        data = {}
 
-    if cache_file.exists() and "lines" in data:
-        file_mtime = cache_file.stat().st_mtime
-        time_diff = time.time() - file_mtime
-        diff_hours = int(time_diff // S_IN_HOUR)
-        diff_mins = int((time_diff % S_IN_HOUR) // 60)
+    if "lines" not in data or not any((item.get("id") == "divine") for item in data.get("lines", [])):
         print(
-            f"(PoE{game} currency data for '{league}' last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(file_mtime)}))"
+            f"Error: Invalid data received from API for PoE{game} '{league}' league. This is expected if league does not exist.",
+            file=sys.stderr,
         )
+        return data
+
+    try:
+        with cache_file.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f)
+    except (yaml.YAMLError, UnicodeDecodeError) as e:
+        print(f"Error writing to cache file: {e}", file=sys.stderr)
+
+    file_mtime = cache_file.stat().st_mtime
+    print_last_updated(game, league, file_mtime)
 
     return data
 
@@ -282,7 +286,7 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
         print("Error: Invalid data, could not determine currency suggestions for PoE2.", file=sys.stderr)
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     """Read settings from file, fetch and print currency values, then start keyboard listener."""
     # Load settings from settings.yaml file.
     try:
@@ -313,21 +317,23 @@ def main() -> int:
         return 1
 
     # Attempt to parse game(s)
-    games: list = str(settings["currency"]["games"]).replace(" ", "").split(",")
+    games: list = []
+    if settings["currency"]["games"] and settings["currency"]["games"] != "":
+        games = str(settings["currency"]["games"]).replace(" ", "").split(",")
     for game in games:
         if game not in ("1", "2"):
             print(
                 f"Error: Invalid value for games {settings['currency']['game']} in settings.yaml. "
-                f"Game must be '1' (PoE1) or '2' (PoE2).",
+                f"Game must be '1' (PoE1), '2' (PoE2), or '' (none).",
                 file=sys.stderr,
             )
             return 1
 
     print("> PoEMarcut running <")
-    print(f"Press '{keys['rightclick_key']}' or 'right-click' with item hovered to open dialog, then... ")
-    print(f"press '{keys['calcprice_key']}' to adjust price, then... ")
-    print(f"press '{keys['enter_key']}' or 'enter' to set the new price.")
-    print(f"Press '{keys['exit_key']}' to exit the program.")
+    print(f'Press "{keys["rightclick_key"]}" or "right-click" with item hovered to open dialog, then... ')
+    print(f'press "{keys["calcprice_key"]}" to adjust price, then... ')
+    print(f'press "{keys["enter_key"]}" or "enter" to set the new price.')
+    print(f'Press "{keys["exit_key"]}" to exit the program.')
     print("================================")
 
     # Fetch and print currency values
