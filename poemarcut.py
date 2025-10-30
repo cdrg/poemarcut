@@ -145,13 +145,15 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
         raise ValueError(msg) from e
 
 
-def on_release(  # noqa: PLR0913
+def on_release(  # noqa: C901, PLR0913
     key: Key | KeyCode | None,
     rightclick_key: Key | KeyCode,
     calcprice_key: Key | KeyCode,
     enter_key: Key | KeyCode,
     exit_key: Key | KeyCode,
     adjustment_factor: float,
+    *,
+    calcprice_enter: bool = True,
 ) -> bool:
     """Handle pynput key release events.
 
@@ -161,6 +163,7 @@ def on_release(  # noqa: PLR0913
         calcprice_key (Key | KeyCode): The key to activate price calculation + replacement.
         enter_key (Key | KeyCode): The key to send 'enter' key to the new price.
         exit_key (Key | KeyCode): The key to exit the program.
+        calcprice_enter (bool): Whether to press enter after price calculation.
         adjustment_factor (float): The factor by which to adjust the price.
 
     Returns:
@@ -205,9 +208,14 @@ def on_release(  # noqa: PLR0913
 
             time.sleep(0.3)  # small delay to ensure paste completes before handling next key
 
+            if calcprice_enter:
+                # Press enter to confirm new price
+                pyautogui.press("enter")
+
         elif isinstance(key, (Key, KeyCode)) and key == enter_key:
-            # Press enter to confirm new price
-            pyautogui.press("enter")
+            if not calcprice_enter:
+                # Press enter to confirm new price
+                pyautogui.press("enter")
 
         elif isinstance(key, (Key, KeyCode)) and key == exit_key:
             print("Exiting...")
@@ -331,8 +339,9 @@ def main() -> int:  # noqa: C901
 
     print("> PoEMarcut running <")
     print(f'Press "{keys["rightclick_key"]}" or "right-click" with item hovered to open dialog, then... ')
-    print(f'press "{keys["calcprice_key"]}" to adjust price, then... ')
-    print(f'press "{keys["enter_key"]}" or "enter" to set the new price.')
+    print(f'press "{keys["calcprice_key"]}" to adjust price')
+    if not settings["currency"]["autoupdate"]:
+        print(f'press "{keys["enter_key"]}" or "enter" to set the new price.')
     print(f'Press "{keys["exit_key"]}" to exit the program.')
     print("================================")
 
@@ -355,7 +364,13 @@ def main() -> int:  # noqa: C901
     # have to suppress type check because pynput Listener does not follow its own type hint
     with Listener(
         on_release=lambda event: on_release(
-            event, keys["rightclick_key"], keys["calcprice_key"], keys["enter_key"], keys["exit_key"], adjustment_factor
+            event,
+            keys["rightclick_key"],
+            keys["calcprice_key"],
+            keys["enter_key"],
+            keys["exit_key"],
+            adjustment_factor,
+            calcprice_enter=settings["currency"]["autoupdate"],
         )  # type: ignore[attr-defined]
     ) as listener:
         listener.join()

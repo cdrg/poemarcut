@@ -10,6 +10,8 @@ keys:
 logic:
   # factor to multiply the current price by to get the new discounted price
   adjustment_factor: 0.9
+  # true to press 'enter' after calculating and pasting new price, false to not
+  calcprice_enter: true
 currency:
   # true to update currency values from poe.ninja, false set values manually in '[league].yaml'
   autoupdate: true
