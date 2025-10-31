@@ -7,6 +7,7 @@ On start, prints a list of suggested new prices for 1-unit currency items based 
 """
 
 import platform
+import re
 import sys
 import time
 from pathlib import Path
@@ -19,13 +20,60 @@ import requests
 import yaml
 from pynput.keyboard import Key, KeyCode, Listener
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 S_IN_HOUR = 3600
-# "https://poe.ninja/api/data/currencyoverview" # old poe1 stash-based url  # noqa: ERA001
-POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/currencyexchange/overview"
-POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/currencyexchange/overview"
+POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/exchange/current/overview"
+POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/exchange/current/overview"
 POE2_EX_WORTHLESS_VAL = 500  # if poe2 div<=>ex is above this value, ex is worthless
+GITHUB_URL = "https://api.github.com/repos/cdrg/poemarcut/releases/latest"
+
+
+def _version_str_to_tuple(version_str: str) -> tuple:
+    """Convert a version string into a tuple of ints for comparison.
+
+    Args:
+        version_str (str): the version string to convert
+
+    """
+    if not version_str:
+        return ()
+    v = version_str.lstrip("vV")
+    parts = [p for p in re.split(r"[^0-9]+", v) if p != ""]
+    try:
+        return tuple(int(p) for p in parts)
+    except ValueError:
+        # Fallback: compare lexicographically if non-numeric
+        return (v,)
+
+
+def print_github_version() -> None:
+    """Check the latest github release for a newer version and print an update prompt."""
+    try:
+        response = requests.get(GITHUB_URL, timeout=5)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Error fetching current github version number: {e}", file=sys.stderr)
+        return
+    try:
+        data = response.json()
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        print("Error: No JSON in response while fetching github version number")
+        return
+    remote_ver = data.get("tag_name") or data.get("name")
+    if not remote_ver:
+        return
+
+    remote_vt: tuple = _version_str_to_tuple(str(remote_ver))
+    local_vt: tuple = _version_str_to_tuple(str(__version__))
+
+    # If parsing produced non-empty tuples and remote > local, print a message
+    if remote_vt and local_vt and remote_vt > local_vt:
+        print(
+            f"A newer version of PoEMarcut is available at https://github.com/cdrg/poemarcut: {remote_ver} (you have {__version__})"
+        )
+
+    return
 
 
 def print_last_updated(game: str, league: str, file_mtime: float) -> None:
@@ -77,8 +125,7 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
             print(f"Error reading cache file: {e}", file=sys.stderr)
             data = {}
 
-        has_divine = any((item.get("id") == "divine") for item in data.get("lines", []))
-        if "lines" in data and has_divine:
+        if "lines" in data and any((item.get("id") == "divine") for item in data.get("lines", [])):
             print_last_updated(game, league, cache_mtime)
             return data
 
@@ -89,14 +136,14 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
         if game == "1":
             response = requests.get(
                 POE1_CURRENCY_API_URL,
-                params={"leagueName": league, "type": "Currency"},
+                params={"league": league, "type": "Currency"},
                 headers=headers,
                 timeout=10,
             )
         else:
             response = requests.get(
                 POE2_CURRENCY_API_URL,
-                params={"leagueName": league, "overviewName": "Currency"},
+                params={"league": league, "type": "Currency"},
                 headers=headers,
                 timeout=10,
             )
@@ -383,6 +430,8 @@ def main() -> int:  # noqa: C901, PLR0912
         else:
             print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
             print()
+
+    print_github_version()  # Check github for newer release and print message
 
     # Start pynput keyboard listener
     # have to suppress type check because pynput Listener does not follow its own type hint
