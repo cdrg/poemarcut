@@ -201,7 +201,7 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
         raise ValueError(msg) from e
 
 
-def on_release(  # noqa: C901, PLR0913
+def on_release(  # noqa: C901, PLR0912, PLR0913
     key: Key | KeyCode | None,
     rightclick_key: Key | KeyCode,
     calcprice_key: Key | KeyCode,
@@ -249,13 +249,14 @@ def on_release(  # noqa: C901, PLR0913
                 # Get current price from clipboard. Strip any thousands separators (locale dependent).
                 current_price: int = int(pyperclip.paste().replace(",", "").replace(".", ""))
             except ValueError:
-                current_price: int = 0
+                return True  # do nothing if clipboard value is not a valid int
+
+            if current_price <= 1:
+                return True  # do nothing if parsed int is 1 or less
 
             actual_adjustment_factor: float = int(current_price * adjustment_factor) / current_price
-            # If the clipboard does not contain a valid integer, or is 1 or less,
-            # or the actual adjustment factor would be below the minimum, do nothing
-            if current_price <= 1 or actual_adjustment_factor < min_actual_factor:
-                return True
+            if actual_adjustment_factor < min_actual_factor:
+                return True  # do nothing if actual adj factor is below minimum
 
             # Calculate the new discounted price
             new_price: int = int(current_price * adjustment_factor)
