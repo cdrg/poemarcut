@@ -21,6 +21,6 @@ currency:
   # the game(s) to output currency values for, '1' and/or '2', comma-separated; '' for none
   games: '1,2'
   # the PoE1 league name to get currency values for
-  poe1league: 'Keepers of the Flame'
+  poe1league: 'Keepers'
   # the PoE2 league name to get currency values for
   poe2league: 'Rise of the Abyssal'

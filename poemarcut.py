@@ -28,6 +28,9 @@ POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/exchange/current/ove
 POE2_EX_WORTHLESS_VAL = 500  # if poe2 div<=>ex is above this value, ex is worthless
 GITHUB_URL = "https://api.github.com/repos/cdrg/poemarcut/releases/latest"
 
+BOLD = "\033[1m"  # ANSI escape bold
+RESET = "\033[0m"  # ANSI escape reset
+
 
 def _version_str_to_tuple(version_str: str) -> tuple:
     """Convert a version string into a tuple of ints for comparison.
@@ -70,7 +73,7 @@ def print_github_version() -> None:
     # If parsing produced non-empty tuples and remote > local, print a message
     if remote_vt and local_vt and remote_vt > local_vt:
         print(
-            f"A newer version of PoEMarcut is available at https://github.com/cdrg/poemarcut: {remote_ver} (you have {__version__})"
+            f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {remote_ver} (you have {__version__})"
         )
 
     return
@@ -125,7 +128,7 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
             print(f"Error reading cache file: {e}", file=sys.stderr)
             data = {}
 
-        if "lines" in data and any((item.get("id") == "divine") for item in data.get("lines", [])):
+        if "lines" in data and any(item.get("core", {}).get("primary") is not None for item in data.get("lines", [])):
             print_last_updated(game, league, cache_mtime)
             return data
 
@@ -158,7 +161,7 @@ def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
         print(f"No JSON data in poe.ninja response: {e}", file=sys.stderr)
         data = {}
 
-    if "lines" not in data or not any((item.get("id") == "divine") for item in data.get("lines", [])):
+    if "lines" not in data or "core" not in data or data["core"].get("primary") is None:
         print(
             f"Error: Invalid data received from API for PoE{game} '{league}' league. This is expected if league does not exist.",
             file=sys.stderr,
@@ -297,11 +300,21 @@ def print_poe1_currency_suggestions(adjustment_factor: float, data: dict) -> Non
         data (dict): The currency data fetched from poe.ninja.
 
     """
-    if "lines" in data:
-        chaos_div_val: float = next(item for item in data.get("lines", []) if item.get("id") == "chaos")["primaryValue"]
+    if "lines" in data and "core" in data and data["core"].get("primary"):
+        if data["core"]["primary"] == "chaos" and data["core"].get("rates") and data["core"]["rates"].get("divine"):
+            chaos_div_val: float = data["core"]["rates"]["divine"]
+        elif data["core"]["primary"] == "divine" and data["core"].get("rates") and data["core"]["rates"].get("chaos"):
+            chaos_div_val: float = 1 / data["core"]["rates"]["chaos"]
+        elif any((item.get("id") == "chaos") for item in data.get("lines", [])):
+            chaos_div_val: float = next(item for item in data.get("lines", []) if item.get("id") == "chaos")[
+                "primaryValue"
+            ]
+        else:
+            print("Error: Invalid data, could not determine currency suggestions for PoE1.", file=sys.stderr)
+            return
 
         div_chaos_adj: float = 1 / chaos_div_val * adjustment_factor
-        print("PoE1 suggested new currency setting if current setting is 1, based on current values:")
+        print(f"{BOLD}PoE1{RESET} suggested new currency setting if current setting is 1, based on current values:")
         print(f"{adjustment_factor}x 1 Divine Orb")
         print(f" = {int(div_chaos_adj)} Chaos Orb ({div_chaos_adj:.2f})")
         print(f"{adjustment_factor}x 1 Chaos Orb")
@@ -320,7 +333,14 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
         data (dict): The currency data fetched from poe.ninja.
 
     """
-    if "lines" in data:
+    if (
+        "lines" in data
+        and "core" in data
+        and data["core"].get("primary")
+        and any((item.get("id") == "annul") for item in data.get("lines", []))
+        and any((item.get("id") == "chaos") for item in data.get("lines", []))
+        and any((item.get("id") == "exalted") for item in data.get("lines", []))
+    ):
         annul_div_val: float = next(item for item in data.get("lines", []) if item.get("id") == "annul")["primaryValue"]
         chaos_div_val: float = next(item for item in data.get("lines", []) if item.get("id") == "chaos")["primaryValue"]
         exalt_div_val: float = next(item for item in data.get("lines", []) if item.get("id") == "exalted")[
@@ -333,7 +353,7 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
         annul_chaos_adj: float = 1 / chaos_div_val * annul_div_val * adjustment_factor
         annul_exalt_adj: float = 1 / exalt_div_val * annul_div_val * adjustment_factor
         chaos_exalt_adj: float = 1 / exalt_div_val * chaos_div_val * adjustment_factor
-        print("PoE2 suggested new currency setting if current setting is 1, based on current values:")
+        print(f"{BOLD}PoE2{RESET} suggested new currency setting if current setting is 1, based on current values:")
         print(f"{adjustment_factor}x 1 Divine Orb")
         print(f" = {int(div_annul_adj)} Orb of Annulment ({div_annul_adj:.2f})")
         print(f" = {int(div_chaos_adj)} Chaos Orb ({div_chaos_adj:.2f})")
@@ -422,10 +442,10 @@ def main() -> int:  # noqa: C901, PLR0912
         league = settings["currency"]["poe1league"] if game == "1" else settings["currency"]["poe2league"]
         data = get_currency_values(game=game, league=league, update=settings["currency"]["autoupdate"])
         # If data object is valid, print suggested currency values for case where current price is 1
-        if game == "1" and "lines" in data and any((item.get("id") == "divine") for item in data.get("lines", [])):
+        if game == "1" and "lines" in data and "core" in data and data["core"].get("primary"):
             print_poe1_currency_suggestions(adjustment_factor, data)
             print()
-        elif game == "2" and "lines" in data and any((item.get("id") == "divine") for item in data.get("lines", [])):
+        elif game == "2" and "lines" in data and "core" in data and data["core"].get("primary"):
             print_poe2_currency_suggestions(adjustment_factor, data)
             print()
         else:
