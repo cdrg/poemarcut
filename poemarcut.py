@@ -20,7 +20,7 @@ import requests
 import yaml
 from pynput.keyboard import Key, KeyCode, Listener
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 S_IN_HOUR = 3600
 POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/exchange/current/overview"
