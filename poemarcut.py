@@ -264,14 +264,15 @@ def on_release(  # noqa: C901, PLR0912, PLR0913
             # Calculate the new discounted price
             new_price: int = int(current_price * adjustment_factor)
 
-            # Have to press backspace first because of PoE paste bug with text selected
+            # Have to press backspace first because of PoE paste bug.
+            # (If text is selected and text cursor is at end of line, pasting will fail.)
             pyautogui.press("backspace")
+
+            time.sleep(0.35)  # small delay to ensure backspace completes before pasting
 
             # Paste the new price from clipboard
             pyperclip.copy(str(new_price))
             pyautogui.hotkey("ctrl", "v")
-
-            time.sleep(0.3)  # small delay to ensure paste completes before handling next key
 
             if calcprice_enter:
                 # Press enter to confirm new price
