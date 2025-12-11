@@ -7,7 +7,6 @@ On start, prints a list of suggested new prices for 1-unit currency items based 
 """
 
 import platform
-import re
 import sys
 import time
 from pathlib import Path
@@ -20,63 +19,16 @@ import requests
 import yaml
 from pynput.keyboard import Key, KeyCode, Listener
 
-__version__ = "0.3.2"
-
-S_IN_HOUR = 3600
-POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/exchange/current/overview"
-POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/exchange/current/overview"
-POE2_EX_WORTHLESS_VAL = 500  # if poe2 div<=>ex is above this value, ex is worthless
-GITHUB_URL = "https://api.github.com/repos/cdrg/poemarcut/releases/latest"
-
-BOLD = "\033[1m"  # ANSI escape bold
-RESET = "\033[0m"  # ANSI escape reset
-
-
-def _version_str_to_tuple(version_str: str) -> tuple:
-    """Convert a version string into a tuple of ints for comparison.
-
-    Args:
-        version_str (str): the version string to convert
-
-    """
-    if not version_str:
-        return ()
-    v = version_str.lstrip("vV")
-    parts = [p for p in re.split(r"[^0-9]+", v) if p != ""]
-    try:
-        return tuple(int(p) for p in parts)
-    except ValueError:
-        # Fallback: compare lexicographically if non-numeric
-        return (v,)
-
-
-def print_github_version() -> None:
-    """Check the latest github release for a newer version and print an update prompt."""
-    try:
-        response = requests.get(GITHUB_URL, timeout=5)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Error fetching current github version number: {e}", file=sys.stderr)
-        return
-    try:
-        data = response.json()
-    except (ValueError, requests.exceptions.JSONDecodeError):
-        print("Error: No JSON in response while fetching github version number")
-        return
-    remote_ver = data.get("tag_name") or data.get("name")
-    if not remote_ver:
-        return
-
-    remote_vt: tuple = _version_str_to_tuple(str(remote_ver))
-    local_vt: tuple = _version_str_to_tuple(str(__version__))
-
-    # If parsing produced non-empty tuples and remote > local, print a message
-    if remote_vt and local_vt and remote_vt > local_vt:
-        print(
-            f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {remote_ver} (you have {__version__})"
-        )
-
-    return
+import poemarcut.update
+from poemarcut.__init__ import __version__
+from poemarcut.constants import (
+    BOLD,
+    POE1_CURRENCY_API_URL,
+    POE2_CURRENCY_API_URL,
+    POE2_EX_WORTHLESS_VAL,
+    RESET,
+    S_IN_HOUR,
+)
 
 
 def print_last_updated(game: str, league: str, file_mtime: float) -> None:
@@ -293,6 +245,24 @@ def on_release(  # noqa: C901, PLR0912, PLR0913
     return True
 
 
+def check_github_for_update() -> None:
+    """Check the latest github release for a newer version and print an update prompt if one exists."""
+    github_version = poemarcut.update.get_github_version()
+    if not github_version:
+        return
+
+    remote_vt: tuple = poemarcut.update.version_str_to_tuple(str(github_version))
+    local_vt: tuple = poemarcut.update.version_str_to_tuple(str(__version__))
+
+    # If parsing produced non-empty tuples and remote > local, print a message
+    if remote_vt and local_vt and remote_vt > local_vt:
+        print(
+            f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
+        )
+
+    return
+
+
 def print_poe1_currency_suggestions(adjustment_factor: float, data: dict) -> None:
     """Print suggested new currency prices for PoE1 based on current poe.ninja currency values.
 
@@ -453,7 +423,7 @@ def main() -> int:  # noqa: C901, PLR0912
             print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
             print()
 
-    print_github_version()  # Check github for newer release and print message
+    check_github_for_update()  # Check github for newer release and print message
 
     # Start pynput keyboard listener
     # have to suppress type check because pynput Listener does not follow its own type hint

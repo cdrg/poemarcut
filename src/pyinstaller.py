@@ -5,8 +5,10 @@ from pathlib import Path
 
 import PyInstaller.__main__
 
-PROJ_ROOT = Path(__file__).parent.parent.absolute()
-path_to_main = str(PROJ_ROOT / "src" / "poemarcut.py")
+SRC_ROOT = Path(__file__).parent.absolute()
+PROJ_ROOT = SRC_ROOT.parent.absolute()
+
+path_to_main = str(SRC_ROOT / "poemarcut_cli.py")
 
 
 def install() -> None:
@@ -28,7 +30,7 @@ def install() -> None:
 
     # copy yaml files to dist directly (since PyInstaller run --add-data is not suitable for enduser-editable files)
     if (PROJ_ROOT / "dist").exists():
-        shutil.copy(PROJ_ROOT / "src" / "settings.yaml", PROJ_ROOT / "dist")
+        shutil.copy(SRC_ROOT / "settings.yaml", PROJ_ROOT / "dist")
 
     # make a zip of the dist directory contents. need to create in other dir then move or the zip will contain itself.
     shutil.make_archive(base_name="poemarcut", format="zip", root_dir=PROJ_ROOT / "dist")
