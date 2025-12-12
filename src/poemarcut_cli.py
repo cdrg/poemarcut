@@ -6,6 +6,7 @@ Also works for stash tab items, but you'll have to select the price text yoursel
 On start, prints a list of suggested new prices for 1-unit currency items based on current poe.ninja currency prices.
 """
 
+import logging
 import platform
 import sys
 import time
@@ -349,6 +350,15 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
 
 def main() -> int:  # noqa: C901, PLR0912
     """Read settings from file, fetch and print currency values, then start keyboard listener."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(),  # Output to console
+        ],
+    )
+    logger = logging.getLogger(__name__)
+
     # Load settings from settings.yaml file.
     try:
         with Path("settings.yaml").open("r", encoding="utf-8") as f:
