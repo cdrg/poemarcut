@@ -13,7 +13,7 @@ from poemarcut.constants import POE1_CURRENCY_API_URL, POE2_CURRENCY_API_URL, S_
 logger = logging.getLogger(__name__)
 
 
-def get_currency_values(game: str, league: str, *, update: bool = True) -> tuple[dict, float]:
+def get_currency_values(game: int, league: str, *, update: bool = True) -> tuple[dict, float]:
     """Fetch currency prices from cache file or poe.ninja currency API.
 
     GGG only updates the currency exchange API once per hour, so there's no reason to fetch more often than that.
