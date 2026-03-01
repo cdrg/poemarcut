@@ -5,6 +5,8 @@ import re
 
 import requests
 
+from poemarcut import __version__
+
 GITHUB_URL = "https://api.github.com/repos/cdrg/poemarcut/releases/latest"
 
 logger = logging.getLogger(__name__)
@@ -51,3 +53,21 @@ def get_github_version() -> str | None:
     if not remote_ver:
         return None
     return remote_ver
+
+
+def is_github_update_available() -> tuple[bool, str | None]:
+    """Check the latest github release for a newer version and return a tuple indicating if an update is available and the latest version.
+
+    Returns:
+        tuple[bool, str | None]: A tuple where the first element is a boolean indicating if an update is available, and the second element is the latest version string or None if no update is available.
+
+    """
+    github_version = get_github_version()
+    if not github_version:
+        return False, None
+
+    remote_vt: tuple = version_str_to_tuple(str(github_version))
+    local_vt: tuple = version_str_to_tuple(str(__version__))
+
+    # If parsing produced non-empty tuples and remote > local, return True, otherwise False
+    return bool(remote_vt and local_vt and remote_vt > local_vt), github_version

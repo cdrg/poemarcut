@@ -7,29 +7,24 @@ On start, prints a list of suggested new prices for 1-unit currency items based 
 """
 
 import logging
-import platform
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyautogui
-import pydirectinput
-import pyperclip
-import requests
 import yaml
-from pynput.keyboard import Key, KeyCode, Listener
 
-import poemarcut.update
+from poemarcut import currency, keyboard, update
 from poemarcut.__init__ import __version__
 from poemarcut.constants import (
     BOLD,
-    POE1_CURRENCY_API_URL,
-    POE2_CURRENCY_API_URL,
     POE2_EX_WORTHLESS_VAL,
     RESET,
     S_IN_HOUR,
 )
+
+if TYPE_CHECKING:
+    from pynput.keyboard import Key, KeyCode
 
 
 def print_last_updated(game: str, league: str, file_mtime: float) -> None:
@@ -47,221 +42,6 @@ def print_last_updated(game: str, league: str, file_mtime: float) -> None:
     print(
         f"(PoE{game} currency data for '{league}' last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(file_mtime)}))"
     )
-
-
-def get_currency_values(game: str, league: str, *, update: bool = True) -> dict:
-    """Fetch currency prices from cache file or poe.ninja currency API.
-
-    GGG only updates the currency exchange API once per hour, so there's no reason to fetch more often than that.
-
-    Args:
-        game (int): The game version, either 1 (PoE1) or 2 (PoE2).
-        league (str): The league name to fetch currency prices for.
-        update (bool): Whether to fetch new prices from API if cache file is older than one hour.
-
-    Returns:
-        Dict: The poe.ninja currency API response as a Python object.
-
-    """
-    cache_file = Path(f"{league}.yaml")
-
-    data: dict = {}
-
-    # Try cache file first. GGG currency exchange API data updates only hourly, so no need to fetch more often than that
-    try:
-        cache_mtime = cache_file.stat().st_mtime if cache_file.exists() else 0
-    except OSError:
-        cache_mtime = 0
-
-    if cache_mtime and (cache_mtime > (time.time() - S_IN_HOUR) or update is False):
-        try:
-            with cache_file.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-        except (yaml.YAMLError, FileNotFoundError) as e:
-            print(f"Error reading cache file: {e}", file=sys.stderr)
-            data = {}
-
-        if "lines" in data and any(item.get("core", {}).get("primary") is not None for item in data.get("lines", [])):
-            print_last_updated(game, league, cache_mtime)
-            return data
-
-    # Fetch from API if not fetched from cache file
-    response: requests.Response | None = None
-    headers = {"User-Agent": "poemarcut/" + __version__ + " (+https://github.com/cdrg/poemarcut)"}
-    try:
-        if game == "1":
-            response = requests.get(
-                POE1_CURRENCY_API_URL,
-                params={"league": league, "type": "Currency"},
-                headers=headers,
-                timeout=10,
-            )
-        else:
-            response = requests.get(
-                POE2_CURRENCY_API_URL,
-                params={"league": league, "type": "Currency"},
-                headers=headers,
-                timeout=10,
-            )
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Error fetching prices from poe.ninja: {e}", file=sys.stderr)
-        response = None
-
-    try:
-        data = response.json() if response is not None else {}
-    except (ValueError, requests.exceptions.JSONDecodeError) as e:
-        print(f"No JSON data in poe.ninja response: {e}", file=sys.stderr)
-        data = {}
-
-    if "lines" not in data or "core" not in data or data["core"].get("primary") is None:
-        print(
-            f"Error: Invalid data received from API for PoE{game} '{league}' league. This is expected if league does not exist.",
-            file=sys.stderr,
-        )
-        return data
-
-    try:
-        with cache_file.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f)
-    except (yaml.YAMLError, UnicodeDecodeError) as e:
-        print(f"Error writing to cache file: {e}", file=sys.stderr)
-
-    file_mtime = cache_file.stat().st_mtime
-    print_last_updated(game, league, file_mtime)
-
-    return data
-
-
-def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
-    """Convert a string representation of a key to a pynput Key or KeyCode.
-
-    This is unfortunately necessary because pynput does not provide the from_char method for both.
-
-    Args:
-        key_str (str): The string representation of the key, e.g. 'f3', 'a', etc.
-
-    Returns:
-        Key | KeyCode: The corresponding Key or KeyCode object.
-
-    """
-    try:
-        # Check if it's a special key in the Key enum
-        special_key = getattr(Key, key_str.lower(), None)
-        if special_key is not None:
-            return special_key
-        # Otherwise, treat it as a regular character key
-        return KeyCode.from_char(key_str)
-    except Exception as e:
-        msg = f"Invalid key string: {key_str}"
-        raise ValueError(msg) from e
-
-
-def on_release(  # noqa: C901, PLR0912, PLR0913
-    key: Key | KeyCode | None,
-    rightclick_key: Key | KeyCode,
-    calcprice_key: Key | KeyCode,
-    enter_key: Key | KeyCode,
-    exit_key: Key | KeyCode,
-    adjustment_factor: float,
-    min_actual_factor: float,
-    *,
-    calcprice_enter: bool = True,
-) -> bool:
-    """Handle pynput key release events.
-
-    Args:
-        key (Key | KeyCode | None): The released key.
-        rightclick_key (Key | KeyCode): The key to send 'right-click' to open the dialog.
-        calcprice_key (Key | KeyCode): The key to activate price calculation + replacement.
-        enter_key (Key | KeyCode): The key to send 'enter' key to the new price.
-        exit_key (Key | KeyCode): The key to exit the program.
-        adjustment_factor (float): The factor by which to adjust the price.
-        min_actual_factor (float): The minimum allowed actual adjustment factor.
-        calcprice_enter (bool): Whether to press enter after price calculation.
-
-    Returns:
-        bool: True to continue listening, False to stop.
-
-    """
-    if key is None:
-        return True
-
-    try:
-        if isinstance(key, (Key, KeyCode)) and key == rightclick_key:
-            # Right click to open price dialog
-            # prefer to use pydirectinput because pyautogui.rightclick doesn't work properly in the game
-            if platform.system() == "Windows":
-                pydirectinput.rightClick()
-            else:
-                pyautogui.rightClick()  # this doesn't work on Windows, untested on other platforms
-
-        elif isinstance(key, (Key, KeyCode)) and key == calcprice_key:
-            # Copy (pre-selected) price to the clipboard
-            # use pyautogui because it sends keys faster
-            pyautogui.hotkey("ctrl", "c")
-
-            try:
-                # Get current price from clipboard. Strip any thousands separators (locale dependent).
-                current_price: int = int(pyperclip.paste().replace(",", "").replace(".", ""))
-            except ValueError:
-                return True  # do nothing if clipboard value is not a valid int
-
-            if current_price <= 1:
-                return True  # do nothing if parsed int is 1 or less
-
-            actual_adjustment_factor: float = int(current_price * adjustment_factor) / current_price
-            if actual_adjustment_factor < min_actual_factor:
-                return True  # do nothing if actual adj factor is below minimum
-
-            # Calculate the new discounted price
-            new_price: int = int(current_price * adjustment_factor)
-
-            # Have to press backspace first because of PoE paste bug.
-            # (If text is selected and text cursor is at end of line, pasting will fail.)
-            pyautogui.press("backspace")
-
-            time.sleep(0.35)  # small delay to ensure backspace completes before pasting
-
-            # Paste the new price from clipboard
-            pyperclip.copy(str(new_price))
-            pyautogui.hotkey("ctrl", "v")
-
-            if calcprice_enter:
-                # Press enter to confirm new price
-                pyautogui.press("enter")
-
-        elif isinstance(key, (Key, KeyCode)) and key == enter_key:
-            if not calcprice_enter:
-                # Press enter to confirm new price
-                pyautogui.press("enter")
-
-        elif isinstance(key, (Key, KeyCode)) and key == exit_key:
-            print("Exiting...")
-            return False
-
-    except (OSError, RuntimeError, ValueError, pyautogui.FailSafeException) as e:
-        print(f"Error: {e}", file=sys.stderr)
-
-    return True
-
-
-def check_github_for_update() -> None:
-    """Check the latest github release for a newer version and print an update prompt if one exists."""
-    github_version = poemarcut.update.get_github_version()
-    if not github_version:
-        return
-
-    remote_vt: tuple = poemarcut.update.version_str_to_tuple(str(github_version))
-    local_vt: tuple = poemarcut.update.version_str_to_tuple(str(__version__))
-
-    # If parsing produced non-empty tuples and remote > local, print a message
-    if remote_vt and local_vt and remote_vt > local_vt:
-        print(
-            f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
-        )
-
-    return
 
 
 def print_poe1_currency_suggestions(adjustment_factor: float, data: dict) -> None:
@@ -357,7 +137,6 @@ def main() -> int:  # noqa: C901, PLR0912
             logging.StreamHandler(),  # Output to console
         ],
     )
-    logger = logging.getLogger(__name__)
 
     # Load settings from settings.yaml file.
     try:
@@ -372,7 +151,7 @@ def main() -> int:  # noqa: C901, PLR0912
     key_names = ["rightclick_key", "calcprice_key", "enter_key", "exit_key"]
     for key_name in key_names:
         try:
-            keys[key_name] = keyorkeycode_from_str(settings["keys"][key_name])
+            keys[key_name] = keyboard.keyorkeycode_from_str(settings["keys"][key_name])
         except ValueError as e:
             print(f"Error loading {key_name} from settings.yaml: {e}", file=sys.stderr)
             return 1
@@ -393,6 +172,16 @@ def main() -> int:  # noqa: C901, PLR0912
     except (ValueError, TypeError):
         print(
             f"Error: Invalid max adjustment value {settings['logic']['min_actual_factor']} in settings.yaml.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Attempt to parse calcprice_enter
+    try:
+        enter_after_calcprice: bool = bool(settings["logic"]["enter_after_calcprice"])
+    except (ValueError, TypeError):
+        print(
+            f"Error: Invalid enter_after_calcprice value {settings['logic']['enter_after_calcprice']} in settings.yaml. Must be true or false.",
             file=sys.stderr,
         )
         return 1
@@ -421,7 +210,11 @@ def main() -> int:  # noqa: C901, PLR0912
     # Fetch and print currency values
     for game in games:
         league = settings["currency"]["poe1league"] if game == "1" else settings["currency"]["poe2league"]
-        data = get_currency_values(game=game, league=league, update=settings["currency"]["autoupdate"])
+        data, last_updated = currency.get_currency_values(
+            game=game, league=league, update=settings["currency"]["autoupdate"]
+        )
+        print_last_updated(game, league, last_updated)
+
         # If data object is valid, print suggested currency values for case where current price is 1
         if game == "1" and "lines" in data and "core" in data and data["core"].get("primary"):
             print_poe1_currency_suggestions(adjustment_factor, data)
@@ -433,24 +226,22 @@ def main() -> int:  # noqa: C901, PLR0912
             print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
             print()
 
-    check_github_for_update()  # Check github for newer release and print message
+    update_available: bool = False
+    github_version: str | None = None
+    update_available, github_version = update.is_github_update_available()
+    if update_available and github_version:
+        print(
+            f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
+        )
 
-    # Start pynput keyboard listener
-    # have to suppress type check because pynput Listener does not follow its own type hint
-    with Listener(
-        on_release=lambda event: on_release(
-            event,
-            keys["rightclick_key"],
-            keys["calcprice_key"],
-            keys["enter_key"],
-            keys["exit_key"],
-            adjustment_factor,
-            min_actual_factor=min_actual_factor,
-            calcprice_enter=settings["currency"]["autoupdate"],
-        )  # type: ignore[attr-defined]
-    ) as listener:
-        listener.join()
+    keyboard.start_listener(
+        keys,
+        adjustment_factor=adjustment_factor,
+        min_actual_factor=min_actual_factor,
+        enter_after_calcprice=enter_after_calcprice,
+    )
 
+    print("Exiting PoEMarcut...")
     return 0
 
 
