@@ -135,46 +135,49 @@ def main() -> int:
         ],
     )
 
+    settings_man: settings.SettingsManager = settings.SettingsManager()
     keys: dict[str, Key | KeyCode] = {
-        k: keyboard.keyorkeycode_from_str(v) for k, v in settings.get_settings().keys.model_dump().items()
+        k: keyboard.keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
     }
-    adjustment_factor: float = settings.get_settings().logic.adjustment_factor
-    min_actual_factor: float = settings.get_settings().logic.min_actual_factor
-    enter_after_calcprice: bool = settings.get_settings().logic.enter_after_calcprice
+    adjustment_factor: float = settings_man.settings.logic.adjustment_factor
+    min_actual_factor: float = settings_man.settings.logic.min_actual_factor
+    enter_after_calcprice: bool = settings_man.settings.logic.enter_after_calcprice
 
     print("> PoEMarcut running <")
+    print(f'Press "{keys["copyitem_key"]}" or "ctrl+shift+c" with item hovered to copy to clipboard, then... ')
     print(f'Press "{keys["rightclick_key"]}" or "right-click" with item hovered to open dialog, then... ')
-    print(f'press "{keys["calcprice_key"]}" to adjust price')
-    if not settings.get_settings().currency.autoupdate:
+    print(f'Press "{keys["calcprice_key"]}" to adjust price')
+    if not settings_man.settings.currency.autoupdate:
         print(f'press "{keys["enter_key"]}" or "enter" to set the new price.')
     print(f'Press "{keys["exit_key"]}" to exit the program.')
     print("================================")
 
     # Fetch and print currency values
-    for game in settings.get_settings().currency.games:
+    games: list[int] = [1, 2]
+    for game in games:
         league = (
-            settings.get_settings().currency.poe1league
-            if game.game == 1
-            else settings.get_settings().currency.poe2league
+            settings_man.settings.currency.poe1leagues[0]
+            if game == 1
+            else settings_man.settings.currency.poe2leagues[0]
         )
-        data, last_updated = currency.get_currency_values(
-            game=game.game, league=league, update=settings.get_settings().currency.autoupdate
+        data = currency.CurrencyStore.get_data(
+            game=game, league=league, update=settings_man.settings.currency.autoupdate
         )
-        print_last_updated(game.game, league, last_updated)
+        print_last_updated(game, league, data.get("mtime", 0))
 
         # If data object is valid, print suggested currency values for case where current price is 1
-        if game.game == 1 and "lines" in data and "core" in data and data["core"].get("primary"):
+        if game == 1 and "lines" in data and "core" in data and data["core"].get("primary"):
             print_poe1_currency_suggestions(adjustment_factor, data)
             print()
-        elif game.game == 2 and "lines" in data and "core" in data and data["core"].get("primary"):  # noqa: PLR2004
+        elif game == 2 and "lines" in data and "core" in data and data["core"].get("primary"):  # noqa: PLR2004
             print_poe2_currency_suggestions(adjustment_factor, data)
             print()
         else:
             print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
             print()
 
-    update_available: bool = False
-    github_version: str | None = None
+    update_available: bool
+    github_version: str | None
     update_available, github_version = update.is_github_update_available()
     if update_available and github_version:
         print(

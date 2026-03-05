@@ -24,7 +24,7 @@ def install() -> None:
             "--onefile",
             "--workpath=" + str(PROJ_ROOT / "build"),
             "--distpath=" + str(PROJ_ROOT / "dist"),
-            "--icon=" + str(PROJ_ROOT / "icon.ico"),
+            "--icon=" + str(PROJ_ROOT / "assets" / "icon.ico"),
         ]
     )
 

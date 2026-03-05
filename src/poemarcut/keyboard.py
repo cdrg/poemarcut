@@ -22,16 +22,25 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
         Key | KeyCode: The corresponding Key or KeyCode object.
 
     """
+    # Check if it's a special key in the Key enum
     try:
-        # Check if it's a special key in the Key enum
         special_key = getattr(Key, key_str.lower(), None)
         if special_key is not None:
             return special_key
-        # Otherwise, treat it as a regular character key
-        return KeyCode.from_char(key_str)
-    except Exception as e:
+    except AttributeError as e:
         msg = f"Invalid key string: {key_str}"
         raise ValueError(msg) from e
+
+    # Otherwise, treat it as a regular character key
+    if len(key_str) != 1:
+        msg = f"Invalid key string: {key_str}"
+        raise ValueError(msg)
+    try:
+        key_code = KeyCode.from_char(key_str)
+    except ValueError as e:
+        msg = f"Invalid key string: {key_str}"
+        raise ValueError(msg) from e
+    return key_code
 
 
 def on_release(  # noqa: C901, PLR0912, PLR0913

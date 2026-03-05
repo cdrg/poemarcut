@@ -1,6 +1,6 @@
 [project]
 name = "poemarcut"
-version = "0.3.3"
+version = "0.4.0"
 description = "Tool to quickly reprice Path of Exile 1 and 2 merchant tab items by a set percentage"
 authors = [
     {name = "cdr",email = "58159483+cdrg@users.noreply.github.com"}
@@ -16,7 +16,8 @@ dependencies = [
     "pydirectinput (>=1.0.4,<2.0.0)",
     "pyautogui (>=0.9.54,<0.10.0)",
     "pydantic (>=2.12.5,<3.0.0)",
-    "pydantic-yaml (>=1.6.0,<2.0.0)"
+    "pydantic-yaml (>=1.6.0,<2.0.0)",
+    "pyqt6 (>=6.10.2,<7.0.0)"
 ]
 
 
