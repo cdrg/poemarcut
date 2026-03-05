@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QPushButton,
+    QRadioButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -106,9 +107,21 @@ class PoEMarcutGUI(QMainWindow):
         main_layout.addWidget(self.currency_text, 3, 0, 1, 3)
         self.show_currency_suggestions()
 
-        self.toggle_button: QPushButton = QPushButton("Settings...")
-        self.toggle_button.clicked.connect(self.toggle_settings_panel)
-        main_layout.addWidget(self.toggle_button, 4, 0, 1, 1)
+        self.settings_button: QPushButton = QPushButton("Settings...")
+        self.settings_button.clicked.connect(self.toggle_settings_panel)
+        main_layout.addWidget(self.settings_button, 4, 0, 1, 1)
+
+        self.hotkeys_enabled: bool = False  # State for hotkeys button
+
+        self.hotkeys_button: QPushButton = QPushButton("Enable hotkeys")
+        self.hotkeys_button.clicked.connect(self.toggle_hotkeys)
+        main_layout.addWidget(self.hotkeys_button, 4, 1, 1, 1)
+
+        self.indicator = QRadioButton()
+        self.indicator.setEnabled(False)  # Disable user interaction
+        main_layout.addWidget(self.indicator, 4, 2, 1, 1)
+
+        self.toggle_hotkeys()  # Enable hotkeys on start
 
         central.setLayout(main_layout)
         self.setCentralWidget(central)
@@ -314,6 +327,50 @@ class PoEMarcutGUI(QMainWindow):
             self.settings_panel.hide()
         else:
             self.settings_panel.show()
+
+    def toggle_hotkeys(self) -> None:
+        """Enable or disable the keyboard hotkeys listener."""
+        if not self.hotkeys_enabled:
+            settings_man: settings.SettingsManager = settings.SettingsManager()
+            try:
+                keys: dict[str, keyboard.Key | keyboard.KeyCode] = {
+                    k: keyboard.keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
+                }
+            except Exception:
+                logger.exception("Failed to build keys for hotkeys listener.")
+                return
+
+            adjustment_factor: float = settings_man.settings.logic.adjustment_factor
+            min_actual_factor: float = settings_man.settings.logic.min_actual_factor
+            enter_after_calcprice: bool = settings_man.settings.logic.enter_after_calcprice
+
+            try:
+                listener = keyboard.start_listener(
+                    keys,
+                    adjustment_factor=adjustment_factor,
+                    min_actual_factor=min_actual_factor,
+                    enter_after_calcprice=enter_after_calcprice,
+                    blocking=False,
+                )
+            except Exception:
+                logger.exception("Failed to start hotkeys listener.")
+                return
+
+            if listener is None:
+                logger.warning("Hotkeys listener did not start (blocking returned None).")
+                return
+
+            self.hotkeys_enabled = True
+            self.hotkeys_button.setText("Disable hotkeys")
+            self.indicator.setStyleSheet("QRadioButton::indicator { border-radius: 12px; background-color: green; }")
+        else:
+            try:
+                keyboard.stop_listener()
+            except Exception:
+                logger.exception("Failed to stop hotkeys listener.")
+            self.hotkeys_enabled = False
+            self.hotkeys_button.setText("Enable hotkeys")
+            self.indicator.setStyleSheet("QRadioButton::indicator { border-radius: 12px; background-color: red; }")
 
     def populate_league_combo(self) -> None:
         """Populate the league combo box."""

@@ -1,13 +1,135 @@
 """Keyboard event handling for PoEMarcut."""
 
+import contextlib
 import logging
 import platform
 import time
+from threading import Lock
 
 import pyautogui
 import pydirectinput
 import pyperclip
 from pynput.keyboard import Key, KeyCode, Listener
+
+
+class KeyboardListenerManager:
+    """Singleton manager that owns the `pynput` Listener and related state.
+
+    Encapsulates the listener and a lock so callers don't rely on module
+    globals. Use the module-level `_listener_manager` instance.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the manager's lock and listener state."""
+        self._lock = Lock()
+        self._listener: Listener | None = None
+
+    def start(
+        self,
+        keys: dict[str, Key | KeyCode],
+        adjustment_factor: float,
+        min_actual_factor: float,
+        *,
+        enter_after_calcprice: bool = True,
+        blocking: bool = True,
+    ) -> Listener | None:
+        """Start and track a `pynput` Listener with the provided parameters.
+
+        Returns the started `Listener` when `blocking` is False, otherwise
+        blocks until the listener exits and returns None.
+        """
+        listener = Listener(
+            on_release=lambda key: on_release(
+                key=key,
+                copyitem_key=keys["copyitem_key"],
+                rightclick_key=keys["rightclick_key"],
+                calcprice_key=keys["calcprice_key"],
+                enter_key=keys["enter_key"],
+                exit_key=keys["exit_key"],
+                adjustment_factor=adjustment_factor,
+                min_actual_factor=min_actual_factor,
+                enter_after_calcprice=enter_after_calcprice,
+            )  # type: ignore[attr-defined]
+        )
+
+        with self._lock:
+            self._listener = listener
+
+        if blocking:
+            try:
+                with listener:
+                    listener.join()
+            finally:
+                with self._lock:
+                    if self._listener is listener:
+                        self._listener = None
+            return None
+
+        listener.start()
+        return listener
+
+    def stop(self) -> None:
+        """Stop and join the active listener if present.
+
+        This is safe to call from another thread; the manager will clear
+        its stored listener reference before attempting to stop it.
+        """
+        with self._lock:
+            listener = self._listener
+            self._listener = None
+
+        if listener is None:
+            return
+
+        try:
+            listener.stop()
+            with contextlib.suppress(RuntimeError):
+                listener.join(timeout=1.0)
+        except Exception:
+            logging.getLogger(__name__).exception("Exception while stopping listener.")
+
+
+# Module-level singleton instance
+_listener_manager = KeyboardListenerManager()
+
+
+def start_listener(
+    keys: dict[str, Key | KeyCode],
+    adjustment_factor: float,
+    min_actual_factor: float,
+    *,
+    enter_after_calcprice: bool = True,
+    blocking: bool = True,
+) -> Listener | None:
+    """Start the keyboard listener.
+
+    Args:
+        keys (dict[str, Key | KeyCode]): A dictionary containing the keys to listen for.
+         The expected keys are 'copyitem_key', 'rightclick_key', 'calcprice_key', 'enter_key', and 'exit_key'.
+        adjustment_factor (float): The factor by which to adjust the price.
+        min_actual_factor (float): The minimum allowed actual adjustment factor.
+        enter_after_calcprice (bool): Whether to press enter after price calculation.
+        blocking (bool): Whether to block the main thread with the listener. If False, the listener will run in a separate thread.
+
+    """
+    # Delegate to the module-level singleton manager. The manager handles
+    # storing and stopping the active Listener instance.
+    return _listener_manager.start(
+        keys=keys,
+        adjustment_factor=adjustment_factor,
+        min_actual_factor=min_actual_factor,
+        enter_after_calcprice=enter_after_calcprice,
+        blocking=blocking,
+    )
+
+
+def stop_listener() -> None:
+    """Stop the active keyboard listener started by `start_listener`.
+
+    This delegates to the `KeyboardListenerManager` singleton and is safe
+    to call from another thread.
+    """
+    _listener_manager.stop()
 
 
 def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
@@ -45,6 +167,7 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
 
 def on_release(  # noqa: C901, PLR0912, PLR0913
     key: Key | KeyCode | None,
+    copyitem_key: Key | KeyCode,
     rightclick_key: Key | KeyCode,
     calcprice_key: Key | KeyCode,
     enter_key: Key | KeyCode,
@@ -58,7 +181,8 @@ def on_release(  # noqa: C901, PLR0912, PLR0913
 
     Args:
         key (Key | KeyCode | None): The released key.
-        rightclick_key (Key | KeyCode): The key to send 'right-click' to open the dialog.
+        copyitem_key (Key | KeyCode): The key to send 'ctrl+alt+c' command to copy the hovered item.
+        rightclick_key (Key | KeyCode): The key to send 'right-click' to open the price dialog for the hovered item.
         calcprice_key (Key | KeyCode): The key to activate price calculation + replacement.
         enter_key (Key | KeyCode): The key to send 'enter' key to the new price.
         exit_key (Key | KeyCode): The key to exit the program.
@@ -74,6 +198,10 @@ def on_release(  # noqa: C901, PLR0912, PLR0913
         return True
 
     try:
+        if isinstance(key, (Key, KeyCode)) and key == copyitem_key:
+            # Send ctrl+alt+c to copy hovered item text to clipboard
+            pyautogui.hotkey("ctrl", "alt", "c")
+
         if isinstance(key, (Key, KeyCode)) and key == rightclick_key:
             # Right click to open price dialog
             # prefer to use pydirectinput because pyautogui.rightclick doesn't work properly in the game
@@ -129,36 +257,3 @@ def on_release(  # noqa: C901, PLR0912, PLR0913
         logging.getLogger(__name__).exception("Exception while handling key release event.")
 
     return True
-
-
-def start_listener(
-    keys: dict[str, Key | KeyCode],
-    adjustment_factor: float,
-    min_actual_factor: float,
-    *,
-    enter_after_calcprice: bool = True,
-) -> None:
-    """Start the keyboard listener.
-
-    Args:
-        keys (dict[str, Key | KeyCode]): A dictionary containing the keys to listen for.
-         The expected keys are 'rightclick_key', 'calcprice_key', 'enter_key', and 'exit_key'.
-        adjustment_factor (float): The factor by which to adjust the price.
-        min_actual_factor (float): The minimum allowed actual adjustment factor.
-        enter_after_calcprice (bool): Whether to press enter after price calculation.
-
-    """
-    with Listener(
-        on_release=lambda key: on_release(
-            key=key,
-            rightclick_key=keys["rightclick_key"],
-            calcprice_key=keys["calcprice_key"],
-            enter_key=keys["enter_key"],
-            exit_key=keys["exit_key"],
-            adjustment_factor=adjustment_factor,
-            min_actual_factor=min_actual_factor,
-            enter_after_calcprice=enter_after_calcprice,
-        )  # type: ignore[attr-defined]
-        # have to suppress type check because pynput Listener does not follow its own type hint
-    ) as listener:
-        listener.join()

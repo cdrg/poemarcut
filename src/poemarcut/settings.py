@@ -133,8 +133,12 @@ class SettingsManager(QObject):
 
     def set_settings(self, new_settings: PoEMSettings) -> None:
         """Set the settings in settings.yaml, overwriting or creating file."""
+        # Ensure we store a proper PoEMSettings object (keep nested sections intact)
+        # new_settings is expected to be a PoEMSettings instance; reconstruct to be safe
         self._settings = PoEMSettings(
-            **new_settings.keys.model_dump(), **new_settings.logic.model_dump(), **new_settings.currency.model_dump()
+            keys=KeySettings(**new_settings.keys.model_dump()),
+            logic=LogicSettings(**new_settings.logic.model_dump()),
+            currency=CurrencySettings(**new_settings.currency.model_dump()),
         )
 
         with SETTINGS_FILE.open("w") as f:
@@ -148,6 +152,8 @@ class SettingsManager(QObject):
     def set_setting(self, category: str, setting: str, value) -> None:  # noqa: ANN001
         """Set a specific setting value and save to settings.yaml."""
         settings = self._load_settings()
+        category = category.lower()
+        setting = setting.lower()
         if hasattr(settings, category):
             category_obj = getattr(settings, category)
             if hasattr(category_obj, setting):
