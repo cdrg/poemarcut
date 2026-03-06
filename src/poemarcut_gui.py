@@ -703,10 +703,13 @@ class PoEMarcutGUI(QMainWindow):
         """Background worker that fetches currency data and emits signal with formatted lines."""
         parenthetical = " (aka the current league)" if league in {"tmpstandard", "tmphardcore"} else ""
         lines: list[str] = []
+        settings_man: settings.SettingsManager = self.settings_man
+
+        # Ensure currency data is available (get_update_time will raise if data missing)
         try:
-            chaos_val, primary_currency = currency.get_currency_value(game=game, league=league, currency_name="chaos")
-        except (LookupError, ValueError) as e:
-            logger.warning("Could not fetch chaos value for %s: %s", league, e)
+            last_updated = currency.get_update_time(game, league)
+        except (LookupError, ValueError, TypeError) as e:
+            logger.warning("Could not retrieve currency data for %s: %s", league, e)
             self.currency_data_ready.emit(
                 {
                     "success": False,
@@ -715,20 +718,6 @@ class PoEMarcutGUI(QMainWindow):
             )
             return
 
-        settings_man: settings.SettingsManager = self.settings_man
-
-        if primary_currency == "chaos":
-            try:
-                divine_val = currency.get_currency_value(game=game, league=league, currency_name="divine")[0]
-                chaos_val = 1 / divine_val
-            except (LookupError, ValueError) as e:
-                # Fallback if divine fetch fails
-                logger.warning("Could not fetch divine value for %s: %s", league, e)
-            primary_currency = "divine"
-
-        primary_chaos_adj: float = 1 / chaos_val * settings_man.settings.logic.adjustment_factor
-        last_updated = currency.get_update_time(game, league)
-
         time_diff = time.time() - last_updated
         diff_hours = int(time_diff // 3600)
         diff_mins = int((time_diff % 3600) // 60)
@@ -736,34 +725,38 @@ class PoEMarcutGUI(QMainWindow):
             f"PoE{game} currency data for {league}{parenthetical} last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(last_updated)})"
         )
         lines.append("Suggested new currency if current price is 1, based on economy data:")
-        lines.append(
-            f"{settings_man.settings.logic.adjustment_factor}x 1 {primary_currency.capitalize()} ({1 / chaos_val:.2f} Chaos)"
-        )
-        lines.append(f" = {int(primary_chaos_adj)} Chaos ({primary_chaos_adj:.2f})")
-        if game == 1:
-            lines.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Chaos")
-            lines.append(" = Just vendor it already!")
-        else:
-            try:
-                chaos_exalt_val: float = currency.get_exchange_rate(
-                    game=game, league=league, from_currency="chaos", to_currency="exalted"
-                )
-            except (LookupError, ValueError) as e:
-                logger.warning("Could not fetch exalted value for %s: %s", league, e)
-                self.currency_data_ready.emit(
-                    {
-                        "success": False,
-                        "error": f"Could not retrieve currency data for {league}{parenthetical}. This is expected if the league is not active.",
-                    }
-                )
-                return
 
-            lines.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Chaos ({chaos_exalt_val:.2f} Exalted)")
-            lines.append(
-                f" = {int(chaos_exalt_val * settings_man.settings.logic.adjustment_factor)} Exalted ({(chaos_exalt_val * settings_man.settings.logic.adjustment_factor):.2f})"
-            )
-            lines.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Exalted")
-            lines.append(" = Just vendor it already!")
+        # Determine the ordered currency list from settings
+        if game == 1:
+            currencies_order = list(getattr(settings_man.settings.currency, "poe1currencies", []) or [])
+        else:
+            currencies_order = list(getattr(settings_man.settings.currency, "poe2currencies", []) or [])
+
+        # If no configured list, fall back to using common currencies
+        if not currencies_order:
+            currencies_order = ["divine", "chaos"] if game == 1 else ["divine", "chaos", "exalted"]
+
+        adj_factor = settings_man.settings.logic.adjustment_factor
+
+        # For each currency in the ordered list, show how much Chaos 1 unit equals and the adjusted Chaos
+        for idx, cur in enumerate(currencies_order):
+            # If there is a next currency, prefer showing the adjusted amount in that currency
+            if idx + 1 < len(currencies_order):
+                next_cur = currencies_order[idx + 1]
+                try:
+                    # Try a direct conversion from cur -> next_cur
+                    rate_to_next = currency.get_exchange_rate(
+                        game=game, league=league, from_currency=cur, to_currency=next_cur
+                    )
+                    adj_in_next = adj_factor * rate_to_next
+                    lines.append(f"{adj_factor}x 1 {cur.capitalize()} ({rate_to_next:.2f} {next_cur.capitalize()})")
+                    lines.append(f" = {int(adj_in_next)} {next_cur.capitalize()} ({adj_in_next:.2f})")
+                except (LookupError, ValueError):
+                    lines.append("Error fetching direct rate to next currency.")
+            else:
+                # No next currency — show adjusted amount in Chaos
+                lines.append(f"{adj_factor}x 1 {cur.capitalize()}")
+                lines.append(" = just vendor it already!")
 
         self.currency_data_ready.emit({"success": True, "lines": lines})
 
