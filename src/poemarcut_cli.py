@@ -157,9 +157,7 @@ def main() -> int:
             if game == 1
             else settings_man.settings.currency.poe2leagues[0]
         )
-        data = currency.CurrencyStore.get_data(
-            game=game, league=league, update=settings_man.settings.currency.autoupdate
-        )
+        data = currency.store.get_data(game=game, league=league, update=settings_man.settings.currency.autoupdate)
         print_last_updated(game, league, data.get("mtime", 0))
 
         # If data object is valid, print suggested currency values for case where current price is 1

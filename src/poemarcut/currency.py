@@ -3,12 +3,11 @@
 import logging
 import time
 from pathlib import Path
-from typing import ClassVar
 
 import requests
 import yaml
 
-from poemarcut import __version__, settings, util
+from poemarcut import __version__, settings
 from poemarcut.constants import S_IN_HOUR
 
 USER_AGENT = "poemarcut/" + __version__ + " (+https://github.com/cdrg/poemarcut)"
@@ -55,9 +54,33 @@ merchant_currencies: dict[str, str] = {
     "offer": "Offering to the Goddess",
 }
 
-# mapping of merchant tab currency trade id to unique prefix for dropdown selection
+# mapping of merchant tab currency trade id to unique minimum full-name prefix for dropdown selection
 merchant_currency_prefixes: dict[str, str] = {
-    cur_id: util.shortest_unique_prefix(cur_id, list(merchant_currencies.keys())) for cur_id in merchant_currencies
+    "chaos": "chao",
+    "divine": "d",
+    "alch": "alc",
+    "exalted": "e",
+    "alt": "alt",
+    "mirror": "m",
+    "chrome": "chr",
+    "blessed": "bl",
+    "fusing": "f",
+    "jewellers": "j",
+    "regal": "rega",
+    "vaal": "v",
+    "chance": "chan",
+    "annul": "an",
+    "aug": "au",
+    "regret": "regr",
+    "scour": "sco",
+    "transmute": "t",
+    "wisdom": "wi",
+    "portal": "p",
+    "scrap": "scr",
+    "whetstone": "wh",
+    "gcp": "g",
+    "bauble": "ba",
+    "offer": "o",
 }
 
 
@@ -70,19 +93,20 @@ class CurrencyStore:
     GGG only updates the currency exchange API once per hour.
     """
 
-    currency_data_by_league: ClassVar[dict[str, dict]] = {}
-    last_updated: ClassVar[float] = 0.0
+    def __init__(self) -> None:
+        """Initialize the store."""
+        self.currency_data_by_league: dict[str, dict] = {}
+        self.last_updated: float = 0.0
 
-    @classmethod
-    def get_data(cls, game: int, league: str, *, update: bool) -> dict:
+    def get_data(self, game: int, league: str, *, update: bool) -> dict:
         """Return the currency data for the specified game and league."""
         if game not in (1, 2):
             msg = "Invalid game, must be 1 or 2"
             raise ValueError(msg)
 
-        cls.currency_data_by_league[league] = _retrieve_currency_prices(game, league, update=update)
+        self.currency_data_by_league[league] = _retrieve_currency_prices(game, league, update=update)
 
-        return cls.currency_data_by_league[league]
+        return self.currency_data_by_league[league]
 
 
 def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) -> dict:  # noqa: C901
@@ -236,9 +260,7 @@ def get_currency_value(game: int, league: str, currency_name: str) -> tuple[floa
         tuple[float, str]: A tuple containing the primary value and primary currency for the specified currency.
 
     """
-    data = CurrencyStore.get_data(
-        game=game, league=league, update=settings.SettingsManager().settings.currency.autoupdate
-    )
+    data = store.get_data(game=game, league=league, update=settings.SettingsManager().settings.currency.autoupdate)
     primary_value: float = next(
         (float(cur.get("primaryValue")) for cur in data.get("lines", []) if cur.get("id") == currency_name), 0.0
     )
@@ -273,7 +295,7 @@ def get_exchange_rate(game: int, league: str, from_currency: str, to_currency: s
         float: number of `to_currency` units equal to one `from_currency` unit.
 
     """
-    data = CurrencyStore.get_data(game, league, update=settings.SettingsManager().settings.currency.autoupdate)
+    data = store.get_data(game, league, update=settings.SettingsManager().settings.currency.autoupdate)
     lines: list[dict] | None = data.get("lines")
     if not lines:
         msg = f"No currency data available for league '{league}'"
@@ -324,11 +346,13 @@ def get_update_time(game: int, league: str) -> float:
         TypeError: If the mtime in the currency data is missing or not a valid number.
 
     """
-    data = CurrencyStore.get_data(
-        game=game, league=league, update=settings.SettingsManager().settings.currency.autoupdate
-    )
+    data = store.get_data(game=game, league=league, update=settings.SettingsManager().settings.currency.autoupdate)
     mtime = data.get("mtime")
     if not isinstance(mtime, (int, float)):
         msg = f"Invalid or missing mtime in currency data for league '{league}'"
         raise TypeError(msg)
     return mtime
+
+
+# Module-level singleton for callers that prefer the manager pattern.
+store = CurrencyStore()

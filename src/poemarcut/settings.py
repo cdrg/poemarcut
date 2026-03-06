@@ -134,10 +134,7 @@ class PoEMSettings(BaseModel):
 
 
 class SettingsManager(QObject):
-    """Manages the application settings, including loading from and saving to a YAML file.
-
-    This class provides methods to get and set settings, as well as to update specific settings values.
-    """
+    """Manages the application settings, including loading from and saving to a YAML file."""
 
     # emits (field name, new_value) when a setting is changed
     settings_changed = pyqtSignal(str, object)

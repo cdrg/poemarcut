@@ -333,7 +333,8 @@ class PoEMarcutGUI(QMainWindow):
         ### right panel of settings
         righthalf_layout: QVBoxLayout = QVBoxLayout()
 
-        blank_header: QLabel = QLabel("")
+        blank_header: QLabel = QLabel("Currency settings")
+        blank_header.setStyleSheet("color: transparent;")
         righthalf_layout.addWidget(blank_header)
 
         # autoupdate field
