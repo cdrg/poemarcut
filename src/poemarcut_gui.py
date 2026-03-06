@@ -4,6 +4,7 @@ import logging
 import sys
 import threading
 import time
+from collections.abc import Iterable
 from functools import partial
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QPushButton,
     QRadioButton,
@@ -296,7 +298,7 @@ class PoEMarcutGUI(QMainWindow):
         p1c_list_layout.addWidget(p1c_setting_label)
 
         self.p1c_list_widget = QListWidget()
-        self.p1c_list_widget.addItems(currency_settings.poe1currencies)
+        self._populate_list_widget(self.p1c_list_widget, currency_settings.poe1currencies, "Currency", "poe1currencies")
         self.p1c_list_widget.currentItemChanged.connect(
             partial(self.process_qlw, "Currency", "poe1currencies", self.p1c_list_widget)
         )
@@ -311,7 +313,7 @@ class PoEMarcutGUI(QMainWindow):
         p2c_list_layout.addWidget(p2c_setting_label)
 
         self.p2c_list_widget = QListWidget()
-        self.p2c_list_widget.addItems(currency_settings.poe2currencies)
+        self._populate_list_widget(self.p2c_list_widget, currency_settings.poe2currencies, "Currency", "poe2currencies")
         self.p2c_list_widget.currentItemChanged.connect(
             partial(self.process_qlw, "Currency", "poe2currencies", self.p2c_list_widget)
         )
@@ -370,7 +372,7 @@ class PoEMarcutGUI(QMainWindow):
         p1l_list_layout.addWidget(p1l_setting_label)
 
         self.p1l_list_widget = QListWidget()
-        self.p1l_list_widget.addItems(currency_settings.poe1leagues)
+        self._populate_list_widget(self.p1l_list_widget, currency_settings.poe1leagues, "Currency", "poe1leagues")
         self.p1l_list_widget.currentItemChanged.connect(
             partial(self.process_qlw, "Currency", "poe1leagues", self.p1l_list_widget)
         )
@@ -385,7 +387,7 @@ class PoEMarcutGUI(QMainWindow):
         p2l_list_layout.addWidget(p2l_setting_label)
 
         self.p2l_list_widget = QListWidget()
-        self.p2l_list_widget.addItems(currency_settings.poe2leagues)
+        self._populate_list_widget(self.p2l_list_widget, currency_settings.poe2leagues, "Currency", "poe2leagues")
         self.p2l_list_widget.currentItemChanged.connect(
             partial(self.process_qlw, "Currency", "poe2leagues", self.p2l_list_widget)
         )
@@ -394,10 +396,12 @@ class PoEMarcutGUI(QMainWindow):
 
         # poe1 leagues button
         self.get_poe1_leagues_button: QPushButton = QPushButton("Get PoE1 leagues...")
+        self.get_poe1_leagues_button.setToolTip("Replace the PoE1 leagues with the list from GGG")
         self.get_poe1_leagues_button.clicked.connect(self.get_poe1_leagues)
         righthalf_layout.addWidget(self.get_poe1_leagues_button)
         # poe2 leagues button
         self.get_poe2_leagues_button: QPushButton = QPushButton("Get PoE2 leagues...")
+        self.get_poe2_leagues_button.setToolTip("Replace the PoE2 leagues with the list from GGG")
         self.get_poe2_leagues_button.clicked.connect(self.get_poe2_leagues)
         righthalf_layout.addWidget(self.get_poe2_leagues_button)
 
@@ -408,6 +412,62 @@ class PoEMarcutGUI(QMainWindow):
             self.settings_man.settings_changed.connect(self._on_setting_changed)
         except Exception:
             logger.exception("Failed to connect settings_changed signal")
+
+    def _make_list_item_widget(self, text: str, list_widget: QListWidget, category: str, setting: str) -> QWidget:
+        """Create a QWidget containing a label and an 'X' remove button for a list item.
+
+        The remove button will delete the item from the QListWidget and update settings.
+        """
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        label = QLabel(text)
+        layout.addWidget(label, stretch=1)
+        remove_btn = QPushButton("X")
+        remove_btn.setFixedWidth(28)
+        remove_btn.clicked.connect(partial(self._remove_list_item, list_widget, text, category, setting))
+        layout.addWidget(remove_btn)
+        return container
+
+    def _remove_list_item(self, list_widget: QListWidget, text: str, category: str, setting: str) -> None:
+        """Remove the first matching item with `text` from `list_widget` and save settings."""
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            if item is None:
+                continue
+            w = list_widget.itemWidget(item)
+            item_text = None
+            if w is not None:
+                lbl = w.findChild(QLabel)
+                if lbl is not None:
+                    item_text = lbl.text()
+            else:
+                item_text = item.text()
+            if item_text == text:
+                list_widget.takeItem(i)
+                break
+        # Persist the new list to settings
+        try:
+            self.process_qlw(category, setting, list_widget)
+        except Exception:
+            logger.exception("Failed to persist list after removal %s.%s", category, setting)
+
+    def _populate_list_widget(
+        self, list_widget: QListWidget, items: Iterable[str] | None, category: str, setting: str
+    ) -> None:
+        """Clear and populate `list_widget` with `items`, using item widgets with remove buttons."""
+        list_widget.clear()
+        if not items:
+            return
+        # Ensure deterministic order for sets
+        if isinstance(items, set):
+            items = sorted(items)
+        for it in items:
+            lw_item = QListWidgetItem()
+            widget = self._make_list_item_widget(str(it), list_widget, category, setting)
+            lw_item.setSizeHint(widget.sizeHint())
+            list_widget.addItem(lw_item)
+            list_widget.setItemWidget(lw_item, widget)
 
     def process_qle_text(self, category: str, setting: str, qle: QLineEdit) -> None:
         """Process input for a specific text setting."""
@@ -442,14 +502,24 @@ class PoEMarcutGUI(QMainWindow):
         items: list[str] = []
         for i in range(list_widget.count()):
             item = list_widget.item(i)
-            if item is not None:
-                items.append(item.text())
+            if item is None:
+                continue
+            # If we've set a custom widget, read the QLabel inside it; otherwise fall back to item.text()
+            widget = list_widget.itemWidget(item)
+            if widget is not None:
+                lbl = widget.findChild(QLabel)
+                if lbl is not None:
+                    items.append(lbl.text())
+                    continue
+            text = item.text()
+            if text:
+                items.append(text)
         try:
             self.settings_man.set_setting(category, setting, items)
         except Exception:
             logger.exception("Failed to update list setting %s.%s", category, setting)
 
-    def _on_setting_changed(self, full_field: str, value: object) -> None:  # noqa: C901, PLR0912, PLR0915
+    def _on_setting_changed(self, full_field: str, value: object) -> None:
         """Slot called when a setting is changed; updates the corresponding widget.
 
         The `full_field` is in the form "category.field".
@@ -462,58 +532,70 @@ class PoEMarcutGUI(QMainWindow):
         setting = setting.lower()
 
         if category == "keys":
-            if setting in getattr(self, "key_lineedits", {}):
-                le = self.key_lineedits[setting]
-                with QSignalBlocker(le):
-                    le.setText(str(value))
+            self._handle_key_setting(setting, value)
         elif category == "logic":
-            if setting == "adjustment_factor":
-                with QSignalBlocker(self.adj_factor_le):
-                    self.adj_factor_le.setText(str(value))
-            elif setting == "min_actual_factor":
-                with QSignalBlocker(self.min_actual_factor_le):
-                    self.min_actual_factor_le.setText(str(value))
-            elif setting == "enter_after_calcprice":
-                with QSignalBlocker(self.enter_after_cb):
-                    self.enter_after_cb.setChecked(bool(value))
+            self._handle_logic_setting(setting, value)
         elif category == "currency":
-            if setting == "assume_highest_currency":
-                with QSignalBlocker(self.assume_highest_currency_cb):
-                    self.assume_highest_currency_cb.setChecked(bool(value))
-            elif setting == "poe1currencies":
-                with QSignalBlocker(self.p1c_list_widget):
-                    self.p1c_list_widget.clear()
-                    if value:
-                        self.p1c_list_widget.addItems(value)
-            elif setting == "poe2currencies":
-                with QSignalBlocker(self.p2c_list_widget):
-                    self.p2c_list_widget.clear()
-                    if value:
-                        self.p2c_list_widget.addItems(value)
-            elif setting == "active_game":
-                with QSignalBlocker(self.active_game_le):
-                    self.active_game_le.setText(str(value))
-            elif setting == "active_league":
-                with QSignalBlocker(self.active_league_le):
-                    self.active_league_le.setText(str(value))
-            elif setting == "autoupdate":
-                with QSignalBlocker(self.autoupdate_cb):
-                    self.autoupdate_cb.setChecked(bool(value))
-            elif setting == "poe1leagues":
-                with QSignalBlocker(self.p1l_list_widget):
-                    self.p1l_list_widget.clear()
-                    if value:
-                        self.p1l_list_widget.addItems(value)
-                # update combo without triggering its signals
-                with QSignalBlocker(self.league_combo):
-                    self.populate_league_combo()
-            elif setting == "poe2leagues":
-                with QSignalBlocker(self.p2l_list_widget):
-                    self.p2l_list_widget.clear()
-                    if value:
-                        self.p2l_list_widget.addItems(value)
-                with QSignalBlocker(self.league_combo):
-                    self.populate_league_combo()
+            self._handle_currency_setting(setting, value)
+
+    def _handle_key_setting(self, setting: str, value: object) -> None:
+        """Update key-related widgets when settings change."""
+        if setting in getattr(self, "key_lineedits", {}):
+            le = self.key_lineedits[setting]
+            with QSignalBlocker(le):
+                le.setText(str(value))
+
+    def _handle_logic_setting(self, setting: str, value: object) -> None:
+        """Update logic-related widgets when settings change."""
+        if setting == "adjustment_factor":
+            with QSignalBlocker(self.adj_factor_le):
+                self.adj_factor_le.setText(str(value))
+        elif setting == "min_actual_factor":
+            with QSignalBlocker(self.min_actual_factor_le):
+                self.min_actual_factor_le.setText(str(value))
+        elif setting == "enter_after_calcprice":
+            with QSignalBlocker(self.enter_after_cb):
+                self.enter_after_cb.setChecked(bool(value))
+
+    def _handle_currency_setting(self, setting: str, value: object) -> None:
+        """Handle updates for currency-related settings."""
+        if setting == "assume_highest_currency":
+            with QSignalBlocker(self.assume_highest_currency_cb):
+                self.assume_highest_currency_cb.setChecked(bool(value))
+        elif setting == "poe1currencies":
+            with QSignalBlocker(self.p1c_list_widget):
+                val = value or []
+                items = list(val) if isinstance(val, Iterable) else []
+                self._populate_list_widget(self.p1c_list_widget, items, "Currency", "poe1currencies")
+        elif setting == "poe2currencies":
+            with QSignalBlocker(self.p2c_list_widget):
+                val = value or []
+                items = list(val) if isinstance(val, Iterable) else []
+                self._populate_list_widget(self.p2c_list_widget, items, "Currency", "poe2currencies")
+        elif setting == "active_game":
+            with QSignalBlocker(self.active_game_le):
+                self.active_game_le.setText(str(value))
+        elif setting == "active_league":
+            with QSignalBlocker(self.active_league_le):
+                self.active_league_le.setText(str(value))
+        elif setting == "autoupdate":
+            with QSignalBlocker(self.autoupdate_cb):
+                self.autoupdate_cb.setChecked(bool(value))
+        elif setting == "poe1leagues":
+            with QSignalBlocker(self.p1l_list_widget):
+                val = value or []
+                items = list(val) if isinstance(val, Iterable) else []
+                self._populate_list_widget(self.p1l_list_widget, items, "Currency", "poe1leagues")
+            # update combo without triggering its signals
+            with QSignalBlocker(self.league_combo):
+                self.populate_league_combo()
+        elif setting == "poe2leagues":
+            with QSignalBlocker(self.p2l_list_widget):
+                val = value or []
+                items = list(val) if isinstance(val, Iterable) else []
+                self._populate_list_widget(self.p2l_list_widget, items, "Currency", "poe2leagues")
+            with QSignalBlocker(self.league_combo):
+                self.populate_league_combo()
 
     def toggle_always_on_top(self) -> None:
         """Toggle the always-stays-on-top window flag."""
@@ -619,6 +701,7 @@ class PoEMarcutGUI(QMainWindow):
 
     def _show_currency_worker(self, league: str, game: int) -> None:
         """Background worker that fetches currency data and emits signal with formatted lines."""
+        parenthetical = " (aka the current league)" if league in {"tmpstandard", "tmphardcore"} else ""
         lines: list[str] = []
         try:
             chaos_val, primary_currency = currency.get_currency_value(game=game, league=league, currency_name="chaos")
@@ -627,7 +710,7 @@ class PoEMarcutGUI(QMainWindow):
             self.currency_data_ready.emit(
                 {
                     "success": False,
-                    "error": f"Could not retrieve currency data for {league}. This is expected if the league is not active.",
+                    "error": f"Could not retrieve currency data for {league}{parenthetical}. This is expected if the league is not active.",
                 }
             )
             return
@@ -650,7 +733,7 @@ class PoEMarcutGUI(QMainWindow):
         diff_hours = int(time_diff // 3600)
         diff_mins = int((time_diff % 3600) // 60)
         lines.append(
-            f"PoE{game} currency data for {league} last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(last_updated)})"
+            f"PoE{game} currency data for {league}{parenthetical} last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(last_updated)})"
         )
         lines.append("Suggested new currency if current price is 1, based on economy data:")
         lines.append(
@@ -670,7 +753,7 @@ class PoEMarcutGUI(QMainWindow):
                 self.currency_data_ready.emit(
                     {
                         "success": False,
-                        "error": f"Could not retrieve currency data for {league}. This is expected if the league is not active.",
+                        "error": f"Could not retrieve currency data for {league}{parenthetical}. This is expected if the league is not active.",
                     }
                 )
                 return
