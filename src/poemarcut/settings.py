@@ -75,11 +75,11 @@ class CurrencySettings(BaseModel):
         default=True,
         description="True: fetch up-to-date currency values. False: only use cached/manually set values",
     )
-    poe1leagues: list[str] = Field(
-        default_factory=lambda: ["tmpstandard", "tmphardcore"], description="The available PoE1 trade leagues"
+    poe1leagues: set[str] = Field(
+        default_factory=lambda: {"tmpstandard", "tmphardcore"}, description="The available PoE1 trade leagues"
     )
-    poe2leagues: list[str] = Field(
-        default_factory=lambda: ["tmpstandard", "tmphardcore"], description="The available PoE2 trade leagues"
+    poe2leagues: set[str] = Field(
+        default_factory=lambda: {"tmpstandard", "tmphardcore"}, description="The available PoE2 trade leagues"
     )
     poe1currencies: list[str] = Field(  # dict[str, None] = Field(
         default_factory=lambda: ["divine", "chaos"],
@@ -106,7 +106,7 @@ class CurrencySettings(BaseModel):
 
         if self.active_game == 1 and self.active_league not in poe1:
             if not poe1:
-                self.poe1leagues = [self.active_league]
+                self.poe1leagues = {self.active_league}
                 msg = f"No PoE1 leagues defined, setting active league '{self.active_league}' as the only PoE1 league."
                 logger.warning(msg)
                 return self
@@ -115,7 +115,7 @@ class CurrencySettings(BaseModel):
             logger.warning(msg)
         if self.active_game == 2 and self.active_league not in poe2:  # noqa: PLR2004
             if not poe2:
-                self.poe2leagues = [self.active_league]
+                self.poe2leagues = {self.active_league}
                 msg = f"No PoE2 leagues defined, setting active league '{self.active_league}' as the only PoE2 league."
                 logger.warning(msg)
                 return self
