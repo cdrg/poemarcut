@@ -140,9 +140,6 @@ def main() -> int:
         k: keyboard.keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
     }
     adjustment_factor: float = settings_man.settings.logic.adjustment_factor
-    min_actual_factor: float = settings_man.settings.logic.min_actual_factor
-    enter_after_calcprice: bool = settings_man.settings.logic.enter_after_calcprice
-
     print("> PoEMarcut running <")
     print(f'Press "{keys["copyitem_key"]}" or "ctrl+shift+c" with item hovered to copy to clipboard, then... ')
     print(f'Press "{keys["rightclick_key"]}" or "right-click" with item hovered to open dialog, then... ')
@@ -184,12 +181,7 @@ def main() -> int:
             f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
         )
 
-    keyboard.start_listener(
-        keys,
-        adjustment_factor=adjustment_factor,
-        min_actual_factor=min_actual_factor,
-        enter_after_calcprice=enter_after_calcprice,
-    )
+    keyboard.start_listener(blocking=True)
 
     # Ensure singleton-managed listener is stopped/cleaned up (no-op if already stopped)
     try:
