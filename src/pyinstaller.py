@@ -1,5 +1,6 @@
 """PyInstaller build script."""
 
+import os
 import shutil
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import PyInstaller.__main__
 SRC_ROOT = Path(__file__).parent.absolute()
 PROJ_ROOT = SRC_ROOT.parent.absolute()
 
-path_to_main = str(SRC_ROOT / "poemarcut_cli.py")
+path_to_main = str(SRC_ROOT / "poemarcut_gui.py")
 
 
 def install() -> None:
@@ -22,15 +23,17 @@ def install() -> None:
         [
             path_to_main,
             "--onefile",
+            "--noconsole",
             "--workpath=" + str(PROJ_ROOT / "build"),
             "--distpath=" + str(PROJ_ROOT / "dist"),
             "--icon=" + str(PROJ_ROOT / "assets" / "icon.ico"),
+            "--add-data=" + str(PROJ_ROOT / "assets" / "icon.ico") + os.pathsep + "assets",
+            "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-Bold.otf") + os.pathsep + "assets",
+            "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-Italic.otf") + os.pathsep + "assets",
+            "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-Regular.otf") + os.pathsep + "assets",
+            "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-SmallCaps.otf") + os.pathsep + "assets",
         ]
     )
-
-    # copy yaml files to dist directly (since PyInstaller run --add-data is not suitable for enduser-editable files)
-    if (PROJ_ROOT / "dist").exists():
-        shutil.copy(SRC_ROOT / "settings.yaml", PROJ_ROOT / "dist")
 
     # make a zip of the dist directory contents. need to create in other dir then move or the zip will contain itself.
     shutil.make_archive(base_name="poemarcut", format="zip", root_dir=PROJ_ROOT / "dist")

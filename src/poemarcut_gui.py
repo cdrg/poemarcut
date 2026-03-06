@@ -52,6 +52,18 @@ redlight = "salmon"
 qradiobutton_greenlight = qradiobutton_light.replace("background-color: black", f"background-color: {greenlight}")
 qradiobutton_redlight = qradiobutton_light.replace("background-color: black", f"background-color: {redlight}")
 
+# Determine base path for bundled resources. When run from a PyInstaller
+# onefile bundle, resources are extracted into the runtime folder
+# available at `sys._MEIPASS`.
+try:
+    _base_path = Path(sys._MEIPASS)  # pyright: ignore[reportAttributeAccessIssue] # noqa: SLF001
+except AttributeError:
+    _base_path = Path(__file__).parent.parent
+
+# Paths to bundled assets (works both when run normally and when packaged with PyInstaller).
+font_path: Path = _base_path / "assets" / "Fontin-Regular.otf"
+icon_path: Path = _base_path / "assets" / "icon.ico"
+
 
 class PoEMarcutGUI(QMainWindow):
     """GUI for PoE Marcut.
@@ -71,7 +83,7 @@ class PoEMarcutGUI(QMainWindow):
         self.setGeometry(400, 100, 650, 600)
 
         self.custom_font_family: str = "default"
-        font_path: Path = Path(__file__).parent.parent / "assets" / "Fontin-Regular.otf"
+
         font_id: int = QFontDatabase.addApplicationFont(str(font_path))
         if font_id == -1:
             logger.warning("Failed to load custom font, using default.")
@@ -79,7 +91,6 @@ class PoEMarcutGUI(QMainWindow):
             families = QFontDatabase.applicationFontFamilies(font_id)
             self.custom_font_family = families[0] if families else "default"
 
-        icon_path: Path = Path(__file__).parent.parent / "assets" / "icon.ico"
         if icon_path.is_file():
             app_icon: QIcon = QIcon(str(icon_path))
             self.setWindowIcon(app_icon)
