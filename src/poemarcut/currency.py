@@ -8,7 +8,7 @@ from typing import ClassVar
 import requests
 import yaml
 
-from poemarcut import __version__, settings
+from poemarcut import __version__, settings, util
 from poemarcut.constants import S_IN_HOUR
 
 USER_AGENT = "poemarcut/" + __version__ + " (+https://github.com/cdrg/poemarcut)"
@@ -25,6 +25,41 @@ POE2_LEAGUES_API_URL = "https://www.pathofexile.com/api/trade2/data/leagues"
 # poe.ninja repackages the GGG currency exchange API. Same interface for both games.
 POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/exchange/current/overview"
 POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+
+# mapping of merchant tab currency trade id to full name
+merchant_currencies: dict[str, str] = {
+    "chaos": "Chaos Orb",
+    "divine": "Divine Orb",
+    "alch": "Orb of Alchemy",
+    "exalted": "Exalted Orb",
+    "alt": "Orb of Alteration",
+    "mirror": "Mirror of Kalandra",
+    "chrome": "Chromatic Orb",
+    "blessed": "Blessed Orb",
+    "fusing": "Orb of Fusing",
+    "jewellers": "Jeweller's Orb",
+    "regal": "Regal Orb",
+    "vaal": "Vaal Orb",
+    "chance": "Orb of Chance",
+    "annul": "Orb of Annulment",
+    "aug": "Orb of Augmentation",
+    "regret": "Orb of Regret",
+    "scour": "Orb of Scouring",
+    "transmute": "Orb of Transmutation",
+    "wisdom": "Scroll of Wisdom",
+    "portal": "Portal Scroll",
+    "scrap": "Armourer's Scrap",
+    "whetstone": "Blacksmith's Whetstone",
+    "gcp": "Gemcutter's Prism",
+    "bauble": "Glassblower's Bauble",
+    "offer": "Offering to the Goddess",
+}
+
+# mapping of merchant tab currency trade id to unique prefix for dropdown selection
+merchant_currency_prefixes: dict[str, str] = {
+    cur_id: util.shortest_unique_prefix(cur_id, list(merchant_currencies.keys())) for cur_id in merchant_currencies
+}
+
 
 logger = logging.getLogger(__name__)
 

@@ -5,8 +5,9 @@ Defines default settings and settings file location.
 
 import logging
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_yaml import parse_yaml_file_as, to_yaml_file
 from PyQt6.QtCore import QObject, pyqtSignal
 from yaml import YAMLError
@@ -31,7 +32,7 @@ class KeySettings(BaseModel):
         default="f3",
         description="Copies the old price, calculates new, and pastes new price into the dialog (and optionally presses 'enter')",
     )
-    enter_key: str = Field(default="f4", description="'enter' key confirms the new price in the dialog")
+    enter_key: str = Field(default="f4", description="'Enter' key confirms the new price in the dialog")
     exit_key: str = Field(
         default="f6", description="Exit the program. Many tools use f5 for '/hideout', so f6 is default"
     )
@@ -63,7 +64,7 @@ class LogicSettings(BaseModel):
     )
     enter_after_calcprice: bool = Field(
         default=True,
-        description="If enabled, 'enter' key is pressed after calculating and pasting the new price to set it",
+        description="True: press 'enter' key after calculating and pasting the new price. False: do not press 'enter' automatically.",
     )
 
 
@@ -72,10 +73,56 @@ class CurrencySettings(BaseModel):
 
     autoupdate: bool = Field(
         default=True,
-        description="Whether to automatically fetch up-to-date currency values. If false, will only use cached/manually set values",
+        description="True: fetch up-to-date currency values. False: only use cached/manually set values",
     )
-    poe1leagues: list[str] = Field(default=["tmpStandard"], description="The PoE1 leagues to fetch currency values for")
-    poe2leagues: list[str] = Field(default=["tmpStandard"], description="The PoE2 leagues to fetch currency values for")
+    poe1leagues: list[str] = Field(
+        default_factory=lambda: ["tmpstandard", "tmphardcore"], description="The available PoE1 trade leagues"
+    )
+    poe2leagues: list[str] = Field(
+        default_factory=lambda: ["tmpstandard", "tmphardcore"], description="The available PoE2 trade leagues"
+    )
+    poe1currencies: list[str] = Field(  # dict[str, None] = Field(
+        default_factory=lambda: ["divine", "chaos"],
+        description="The order of PoE1 currencies to price items in",
+    )
+    poe2currencies: list[str] = Field(  # dict[str, None] = Field(
+        default_factory=lambda: ["divine", "chaos", "exalted"],
+        description="The order of PoE2 currencies to price items in",
+    )
+    assume_highest_currency: bool = Field(
+        default=True, description="True: If actual currency is not available, assume the currency is the highest"
+    )
+    active_game: Literal[1, 2] = Field(
+        default=1,
+        description="The active game for currency values. 1 for PoE1, 2 for PoE2.",
+    )
+    active_league: str = Field(default="tmpstandard", description="The active league to fetch currency values for.")
+
+    @model_validator(mode="after")
+    def check_value_in_list(self) -> "CurrencySettings":
+        """Validate that active_league is in the appropriate list of leagues based on active_game."""
+        poe1 = list(self.poe1leagues or [])
+        poe2 = list(self.poe2leagues or [])
+
+        if self.active_game == 1 and self.active_league not in poe1:
+            if not poe1:
+                self.poe1leagues = [self.active_league]
+                msg = f"No PoE1 leagues defined, setting active league '{self.active_league}' as the only PoE1 league."
+                logger.warning(msg)
+                return self
+            self.active_league = poe1[0]
+            msg = f"'{self.active_league}' must be in {poe1}, setting active league to '{self.active_league}'."
+            logger.warning(msg)
+        if self.active_game == 2 and self.active_league not in poe2:  # noqa: PLR2004
+            if not poe2:
+                self.poe2leagues = [self.active_league]
+                msg = f"No PoE2 leagues defined, setting active league '{self.active_league}' as the only PoE2 league."
+                logger.warning(msg)
+                return self
+            self.active_league = poe2[0]
+            msg = f"'{self.active_league}' must be in {poe2}, setting active league to '{self.active_league}'."
+            logger.warning(msg)
+        return self
 
 
 class PoEMSettings(BaseModel):

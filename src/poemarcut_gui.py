@@ -2,13 +2,14 @@
 
 import logging
 import sys
+import threading
 import time
 from functools import partial
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from annotated_types import Gt, Lt
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator, QFontDatabase, QIcon, QValidator
 from PyQt6.QtWidgets import (
     QApplication,
@@ -32,6 +33,7 @@ from poemarcut import currency, keyboard, settings
 
 logger = logging.getLogger(__name__)
 
+# PoE-like color scheme
 poe_header_text = "rgb(163, 139, 99)"
 poe_header_style = f"color: {poe_header_text}; font-weight: bold; text-decoration: underline;"
 poe_text = "rgb(170, 170, 170)"
@@ -39,12 +41,24 @@ poe_dark_bg = "rgb(34, 16, 4)"
 poe_light_bg = "rgb(50, 30, 10)"
 poe_edit_bg = "rgb(58, 51, 46)"
 
+# width/height 2x border-radius = a circle
+qradiobutton_light = (
+    "QRadioButton::indicator { width: 24px; height: 24px; border-radius: 12px; background-color: black; }"
+)
+greenlight = "limegreen"
+redlight = "salmon"
+qradiobutton_greenlight = qradiobutton_light.replace("background-color: black", f"background-color: {greenlight}")
+qradiobutton_redlight = qradiobutton_light.replace("background-color: black", f"background-color: {redlight}")
+
 
 class PoEMarcutGUI(QMainWindow):
     """GUI for PoE Marcut.
 
     Displays price suggestions and access to settings.
     """
+
+    # Emitted when background currency fetch completes (dict with 'success' and 'lines' or 'error' keys)
+    currency_data_ready = pyqtSignal(object)
 
     def __init__(self) -> None:
         """Initialize the PoEMarcut GUI window and set up the user interface."""
@@ -82,6 +96,11 @@ class PoEMarcutGUI(QMainWindow):
 
         self.init_ui()
 
+        # Signal used to update the UI from a background thread
+        self.currency_data_ready.connect(self._display_currency_suggestions)
+
+        self.show_currency_suggestions()
+
     def init_ui(self) -> None:
         """Set up the user interface components."""
         central: QWidget = QWidget()
@@ -91,10 +110,9 @@ class PoEMarcutGUI(QMainWindow):
         self.currency_header.setStyleSheet(poe_header_style)
         main_layout.addWidget(self.currency_header, 0, 0, 1, 1)
         self.pin_checkbox: QCheckBox = QCheckBox("Always on top")
+        self.pin_checkbox.setToolTip("Always stay on top of other windows")
         self.pin_checkbox.stateChanged.connect(self.toggle_always_on_top)
         main_layout.addWidget(self.pin_checkbox, 0, 2, 1, 1)
-        self.pin_checkbox.setChecked(True)  # toggle now to prevent window flicker later
-        self.pin_checkbox.setChecked(False)
 
         main_layout.addWidget(QLabel("Choose league:"), 1, 0, 1, 1)
         self.league_combo: QComboBox = QComboBox()
@@ -105,7 +123,6 @@ class PoEMarcutGUI(QMainWindow):
         self.currency_text: QTextEdit = QTextEdit("")
         self.currency_text.setReadOnly(True)
         main_layout.addWidget(self.currency_text, 3, 0, 1, 3)
-        self.show_currency_suggestions()
 
         self.settings_button: QPushButton = QPushButton("Settings...")
         self.settings_button.clicked.connect(self.toggle_settings_panel)
@@ -145,6 +162,7 @@ class PoEMarcutGUI(QMainWindow):
 
         self.side_settings_layout: QHBoxLayout = QHBoxLayout()
 
+        ### left panel of settings
         lefthalf_layout: QVBoxLayout = QVBoxLayout()
         ## set up components for Keys settings fields
         keys_settings: settings.KeySettings = settings_man.settings.keys
@@ -233,13 +251,90 @@ class PoEMarcutGUI(QMainWindow):
 
         lefthalf_layout.addStretch()
         self.side_settings_layout.addLayout(lefthalf_layout)
-        righthalf_layout: QVBoxLayout = QVBoxLayout()
 
+        ### middle panel of settings
+        middle_layout: QVBoxLayout = QVBoxLayout()
         ## set up components for Currency settings fields
         currency_settings: settings.CurrencySettings = settings_man.settings.currency
+
         currency_settings_header: QLabel = QLabel("Currency settings")
         currency_settings_header.setStyleSheet(poe_header_style)
-        righthalf_layout.addWidget(currency_settings_header)
+        middle_layout.addWidget(currency_settings_header)
+
+        # assume highest currency field
+        ahc_row_layout: QHBoxLayout = QHBoxLayout()
+        ahc_setting_label: QLabel = QLabel("Assume highest")
+        ahc_field_info = currency_settings.__class__.model_fields["assume_highest_currency"]
+        ahc_setting_label.setToolTip(ahc_field_info.description or "")
+        ahc_row_layout.addWidget(ahc_setting_label, stretch=1)
+        self.assume_highest_currency_cb: QCheckBox = QCheckBox("")
+        self.assume_highest_currency_cb.setChecked(currency_settings.assume_highest_currency)
+        self.assume_highest_currency_cb.stateChanged.connect(
+            partial(self.process_qcb, "Currency", "assume_highest_currency", self.assume_highest_currency_cb)
+        )
+        ahc_row_layout.addWidget(self.assume_highest_currency_cb, stretch=1)
+        middle_layout.addLayout(ahc_row_layout)
+
+        # poe1currencies field
+        p1c_list_layout: QVBoxLayout = QVBoxLayout()
+        p1c_setting_label: QLabel = QLabel("PoE1 currencies")
+        p1c_field_info = currency_settings.__class__.model_fields["poe1currencies"]
+        p1c_setting_label.setToolTip(p1c_field_info.description or "")
+        p1c_list_layout.addWidget(p1c_setting_label)
+
+        self.p1c_list_widget = QListWidget()
+        self.p1c_list_widget.addItems(currency_settings.poe1currencies)
+        self.p1c_list_widget.currentItemChanged.connect(
+            partial(self.process_qlw, "Currency", "poe1currencies", self.p1c_list_widget)
+        )
+        p1c_list_layout.addWidget(self.p1c_list_widget)
+        middle_layout.addLayout(p1c_list_layout)
+
+        # poe2currencies field
+        p2c_list_layout: QVBoxLayout = QVBoxLayout()
+        p2c_setting_label: QLabel = QLabel("PoE2 currencies")
+        p2c_field_info = currency_settings.__class__.model_fields["poe2currencies"]
+        p2c_setting_label.setToolTip(p2c_field_info.description or "")
+        p2c_list_layout.addWidget(p2c_setting_label)
+
+        self.p2c_list_widget = QListWidget()
+        self.p2c_list_widget.addItems(currency_settings.poe2currencies)
+        self.p2c_list_widget.currentItemChanged.connect(
+            partial(self.process_qlw, "Currency", "poe2currencies", self.p2c_list_widget)
+        )
+        p2c_list_layout.addWidget(self.p2c_list_widget)
+        middle_layout.addLayout(p2c_list_layout)
+
+        # active game field
+        ag_row_layout: QHBoxLayout = QHBoxLayout()
+        ag_setting_label: QLabel = QLabel("Active game")
+        ag_field_info = currency_settings.__class__.model_fields["active_game"]
+        ag_setting_label.setToolTip(ag_field_info.description or "")
+        ag_row_layout.addWidget(ag_setting_label, stretch=1)
+        self.active_game_le: QLineEdit = QLineEdit(str(currency_settings.active_game))
+        self.active_game_le.setReadOnly(True)
+        ag_row_layout.addWidget(self.active_game_le, stretch=1)
+        middle_layout.addLayout(ag_row_layout)
+
+        # active league field
+        al_row_layout: QHBoxLayout = QHBoxLayout()
+        al_setting_label: QLabel = QLabel("Active league")
+        al_field_info = currency_settings.__class__.model_fields["active_league"]
+        al_setting_label.setToolTip(al_field_info.description or "")
+        al_row_layout.addWidget(al_setting_label, stretch=1)
+        self.active_league_le: QLineEdit = QLineEdit(str(currency_settings.active_league))
+        self.active_league_le.setReadOnly(True)
+        al_row_layout.addWidget(self.active_league_le, stretch=1)
+        middle_layout.addLayout(al_row_layout)
+
+        middle_layout.addStretch()
+        self.side_settings_layout.addLayout(middle_layout)
+
+        ### right panel of settings
+        righthalf_layout: QVBoxLayout = QVBoxLayout()
+
+        blank_header: QLabel = QLabel("")
+        righthalf_layout.addWidget(blank_header)
 
         # autoupdate field
         au_row_layout: QHBoxLayout = QHBoxLayout()
@@ -315,6 +410,7 @@ class PoEMarcutGUI(QMainWindow):
 
     def toggle_always_on_top(self) -> None:
         """Toggle the always-stays-on-top window flag."""
+        self.hide()
         if self.pin_checkbox.isChecked():
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on=True)
         else:
@@ -331,27 +427,8 @@ class PoEMarcutGUI(QMainWindow):
     def toggle_hotkeys(self) -> None:
         """Enable or disable the keyboard hotkeys listener."""
         if not self.hotkeys_enabled:
-            settings_man: settings.SettingsManager = settings.SettingsManager()
             try:
-                keys: dict[str, keyboard.Key | keyboard.KeyCode] = {
-                    k: keyboard.keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
-                }
-            except Exception:
-                logger.exception("Failed to build keys for hotkeys listener.")
-                return
-
-            adjustment_factor: float = settings_man.settings.logic.adjustment_factor
-            min_actual_factor: float = settings_man.settings.logic.min_actual_factor
-            enter_after_calcprice: bool = settings_man.settings.logic.enter_after_calcprice
-
-            try:
-                listener = keyboard.start_listener(
-                    keys,
-                    adjustment_factor=adjustment_factor,
-                    min_actual_factor=min_actual_factor,
-                    enter_after_calcprice=enter_after_calcprice,
-                    blocking=False,
-                )
+                listener = keyboard.start_listener(blocking=False)
             except Exception:
                 logger.exception("Failed to start hotkeys listener.")
                 return
@@ -362,7 +439,8 @@ class PoEMarcutGUI(QMainWindow):
 
             self.hotkeys_enabled = True
             self.hotkeys_button.setText("Disable hotkeys")
-            self.indicator.setStyleSheet("QRadioButton::indicator { border-radius: 12px; background-color: green; }")
+            self.indicator.setStyleSheet(qradiobutton_greenlight)
+            self.indicator.setToolTip("Hotkeys enabled.")
         else:
             try:
                 keyboard.stop_listener()
@@ -370,7 +448,8 @@ class PoEMarcutGUI(QMainWindow):
                 logger.exception("Failed to stop hotkeys listener.")
             self.hotkeys_enabled = False
             self.hotkeys_button.setText("Enable hotkeys")
-            self.indicator.setStyleSheet("QRadioButton::indicator { border-radius: 12px; background-color: red; }")
+            self.indicator.setStyleSheet(qradiobutton_redlight)
+            self.indicator.setToolTip("Hotkeys disabled.")
 
     def populate_league_combo(self) -> None:
         """Populate the league combo box."""
@@ -399,43 +478,66 @@ class PoEMarcutGUI(QMainWindow):
         self.populate_league_settings()
 
     def show_currency_suggestions(self) -> None:
-        """Fetch and display currency suggestions for the selected league."""
+        """Fetch and display currency suggestions for the selected league + game."""
         if self.league_combo.currentText() == "" or "[" not in self.league_combo.currentText():
             return
+        # Parse selection and show a quick loading message
+        league, game_str = self.league_combo.currentText().replace("]", "").split(" [")
+        if game_str == "PoE1":
+            settings.SettingsManager().set_setting("currency", "active_game", 1)
+        else:
+            settings.SettingsManager().set_setting("currency", "active_game", 2)
+        settings.SettingsManager().set_setting("currency", "active_league", league)
+        self.currency_text.setText(f"Loading currency data for {self.league_combo.currentText()}...")
 
-        league, game = self.league_combo.currentText().replace("]", "").split(" [")
-        game = 1 if game == "PoE1" else 2
+        # Run in background thread so UI stays responsive
+        game = 1 if game_str == "PoE1" else 2
+        thread = threading.Thread(target=self._show_currency_worker, args=(league, game), daemon=True)
+        thread.start()
 
+    def _show_currency_worker(self, league: str, game: int) -> None:
+        """Background worker that fetches currency data and emits signal with formatted lines."""
+        lines: list[str] = []
         try:
             chaos_val, primary_currency = currency.get_currency_value(game=game, league=league, currency_name="chaos")
         except (LookupError, ValueError) as e:
             logger.warning("Could not fetch chaos value for %s: %s", league, e)
-            self.currency_text.setText(f"Error: Could not retrieve currency data for {league}.")
+            self.currency_data_ready.emit(
+                {
+                    "success": False,
+                    "error": f"Could not retrieve currency data for {league}. This is expected if the league is not active.",
+                }
+            )
             return
 
+        settings_man: settings.SettingsManager = settings.SettingsManager()
+
         if primary_currency == "chaos":
-            chaos_val = 1 / currency.get_currency_value(game=game, league=league, currency_name="divine")[0]
+            try:
+                divine_val = currency.get_currency_value(game=game, league=league, currency_name="divine")[0]
+                chaos_val = 1 / divine_val
+            except (LookupError, ValueError) as e:
+                # Fallback if divine fetch fails
+                logger.warning("Could not fetch divine value for %s: %s", league, e)
             primary_currency = "divine"
 
-        settings_man: settings.SettingsManager = settings.SettingsManager()
         primary_chaos_adj: float = 1 / chaos_val * settings_man.settings.logic.adjustment_factor
         last_updated = currency.get_update_time(game, league)
 
         time_diff = time.time() - last_updated
         diff_hours = int(time_diff // 3600)
         diff_mins = int((time_diff % 3600) // 60)
-        self.currency_text.setText(
+        lines.append(
             f"PoE{game} currency data for {league} last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(last_updated)})"
         )
-
-        self.currency_text.append("Suggested new currency if current price is 1, based on economy data:")
-        self.currency_text.append(
+        lines.append("Suggested new currency if current price is 1, based on economy data:")
+        lines.append(
             f"{settings_man.settings.logic.adjustment_factor}x 1 {primary_currency.capitalize()} ({1 / chaos_val:.2f} Chaos)"
         )
-        self.currency_text.append(f" = {int(primary_chaos_adj)} Chaos ({primary_chaos_adj:.2f})")
+        lines.append(f" = {int(primary_chaos_adj)} Chaos ({primary_chaos_adj:.2f})")
         if game == 1:
-            self.currency_text.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Chaos")
-            self.currency_text.append(" = Just vendor it already!")
+            lines.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Chaos")
+            lines.append(" = Just vendor it already!")
         else:
             try:
                 chaos_exalt_val: float = currency.get_exchange_rate(
@@ -443,17 +545,38 @@ class PoEMarcutGUI(QMainWindow):
                 )
             except (LookupError, ValueError) as e:
                 logger.warning("Could not fetch exalted value for %s: %s", league, e)
-                self.currency_text.setText(f"Error: Could not retrieve currency data for {league}.")
+                self.currency_data_ready.emit(
+                    {
+                        "success": False,
+                        "error": f"Could not retrieve currency data for {league}. This is expected if the league is not active.",
+                    }
+                )
                 return
 
-            self.currency_text.append(
-                f"{settings_man.settings.logic.adjustment_factor}x 1 Chaos ({chaos_exalt_val:.2f} Exalted)"
-            )
-            self.currency_text.append(
+            lines.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Chaos ({chaos_exalt_val:.2f} Exalted)")
+            lines.append(
                 f" = {int(chaos_exalt_val * settings_man.settings.logic.adjustment_factor)} Exalted ({(chaos_exalt_val * settings_man.settings.logic.adjustment_factor):.2f})"
             )
-            self.currency_text.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Exalted")
-            self.currency_text.append(" = Just vendor it already!")
+            lines.append(f"{settings_man.settings.logic.adjustment_factor}x 1 Exalted")
+            lines.append(" = Just vendor it already!")
+
+        self.currency_data_ready.emit({"success": True, "lines": lines})
+
+    def _display_currency_suggestions(self, payload: dict) -> None:
+        """Slot to display currency suggestion lines emitted by the background worker."""
+        if not payload.get("success"):
+            self.currency_text.setText(payload.get("error", "Error fetching currency data."))
+            return
+
+        lines: list[str] = payload.get("lines", [])
+        if not lines:
+            self.currency_text.setText("No data available.")
+            return
+
+        # Show first line as main text, append the rest
+        self.currency_text.setText(lines[0])
+        for line in lines[1:]:
+            self.currency_text.append(line)
 
 
 class KeyOrKeyCodeValidator(QValidator):
