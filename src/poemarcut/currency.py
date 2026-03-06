@@ -260,7 +260,7 @@ def get_currency_value(game: int, league: str, currency_name: str) -> tuple[floa
         tuple[float, str]: A tuple containing the primary value and primary currency for the specified currency.
 
     """
-    data = store.get_data(game=game, league=league, update=settings.SettingsManager().settings.currency.autoupdate)
+    data = store.get_data(game=game, league=league, update=settings.settings_manager.settings.currency.autoupdate)
     primary_value: float = next(
         (float(cur.get("primaryValue")) for cur in data.get("lines", []) if cur.get("id") == currency_name), 0.0
     )
@@ -295,7 +295,7 @@ def get_exchange_rate(game: int, league: str, from_currency: str, to_currency: s
         float: number of `to_currency` units equal to one `from_currency` unit.
 
     """
-    data = store.get_data(game, league, update=settings.SettingsManager().settings.currency.autoupdate)
+    data = store.get_data(game, league, update=settings.settings_manager.settings.currency.autoupdate)
     lines: list[dict] | None = data.get("lines")
     if not lines:
         msg = f"No currency data available for league '{league}'"
@@ -346,7 +346,7 @@ def get_update_time(game: int, league: str) -> float:
         TypeError: If the mtime in the currency data is missing or not a valid number.
 
     """
-    data = store.get_data(game=game, league=league, update=settings.SettingsManager().settings.currency.autoupdate)
+    data = store.get_data(game=game, league=league, update=settings.settings_manager.settings.currency.autoupdate)
     mtime = data.get("mtime")
     if not isinstance(mtime, (int, float)):
         msg = f"Invalid or missing mtime in currency data for league '{league}'"

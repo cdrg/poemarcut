@@ -210,3 +210,8 @@ class SettingsManager(QObject):
         else:
             msg = f"Category '{category}' not found in settings"
             raise AttributeError(msg)
+
+
+# Module-level shared SettingsManager instance for easy access by other modules.
+# Use this singleton to ensure signals and state are centralized.
+settings_manager = SettingsManager()

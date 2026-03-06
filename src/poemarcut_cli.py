@@ -135,7 +135,7 @@ def main() -> int:
         ],
     )
 
-    settings_man: settings.SettingsManager = settings.SettingsManager()
+    settings_man: settings.SettingsManager = settings.settings_manager
     keys: dict[str, Key | KeyCode] = {
         k: keyboard.keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
     }

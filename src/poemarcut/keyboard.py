@@ -6,13 +6,21 @@ import platform
 import re
 import time
 from threading import Lock
+from typing import Any
 
 import pyautogui
-import pydirectinput
 import pyperclip
 from pynput.keyboard import Key, KeyCode, Listener
 
 from poemarcut import currency, settings
+
+# pydirectinput uses Windows-only APIs at import-time; import only on Windows
+pydirectinput: Any | None = None
+if platform.system() == "Windows":
+    try:
+        pydirectinput = __import__("pydirectinput")
+    except ImportError:
+        pydirectinput = None
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +149,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         return True
 
     try:
-        settings_man: settings.SettingsManager = settings.SettingsManager()
+        settings_man: settings.SettingsManager = settings.settings_manager
         try:
             keys: dict[str, Key | KeyCode] = {
                 k: keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
@@ -175,7 +183,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         if isinstance(key, (Key, KeyCode)) and key == rightclick_key:
             # Right click to open price dialog
             # prefer to use pydirectinput because pyautogui.rightclick doesn't work properly in the game
-            if platform.system() == "Windows":
+            if platform.system() == "Windows" and pydirectinput is not None:
                 pydirectinput.rightClick()
             else:
                 pyautogui.rightClick()  # this doesn't work on Windows, untested on other platforms

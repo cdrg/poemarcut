@@ -9,7 +9,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from annotated_types import Gt, Lt
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator, QFontDatabase, QIcon, QValidator
 from PyQt6.QtWidgets import (
     QApplication,
@@ -63,6 +63,8 @@ class PoEMarcutGUI(QMainWindow):
     def __init__(self) -> None:
         """Initialize the PoEMarcut GUI window and set up the user interface."""
         super().__init__()
+        # Use the shared SettingsManager singleton
+        self.settings_man: settings.SettingsManager = settings.settings_manager
         self.setWindowTitle("PoE Marcut")
         self.setGeometry(400, 100, 650, 600)
 
@@ -158,7 +160,7 @@ class PoEMarcutGUI(QMainWindow):
 
     def setup_settings_sidebar(self) -> None:  # noqa: PLR0915
         """Set up the settings sidebar."""
-        settings_man: settings.SettingsManager = settings.SettingsManager()
+        settings_man: settings.SettingsManager = self.settings_man
 
         self.side_settings_layout: QHBoxLayout = QHBoxLayout()
 
@@ -170,6 +172,8 @@ class PoEMarcutGUI(QMainWindow):
         keys_settings_header.setStyleSheet(poe_header_style)
         lefthalf_layout.addWidget(keys_settings_header)
         # loop through all key fields
+        # store line edits so we can update them when settings change
+        self.key_lineedits: dict[str, QLineEdit] = {}
         for field_name, field_value in keys_settings:
             row_layout: QHBoxLayout = QHBoxLayout()
             field_info = keys_settings.__class__.model_fields[field_name]
@@ -180,6 +184,9 @@ class PoEMarcutGUI(QMainWindow):
             lineedit: QLineEdit = QLineEdit(str(field_value))
             self.key_validator = KeyOrKeyCodeValidator()
             lineedit.setValidator(self.key_validator)
+            # update settings when the user finishes editing
+            lineedit.editingFinished.connect(partial(self.process_qle_text, "Keys", field_name, lineedit))
+            self.key_lineedits[field_name] = lineedit
             row_layout.addWidget(lineedit, stretch=1)
             lefthalf_layout.addLayout(row_layout)
 
@@ -209,6 +216,9 @@ class PoEMarcutGUI(QMainWindow):
         self.adj_factor_le.returnPressed.connect(
             partial(self.process_qle_float, "Logic", "adjustment_factor", self.adj_factor_le)
         )
+        self.adj_factor_le.editingFinished.connect(
+            partial(self.process_qle_float, "Logic", "adjustment_factor", self.adj_factor_le)
+        )
         af_row_layout.addWidget(self.adj_factor_le, stretch=1)
         lefthalf_layout.addLayout(af_row_layout)
 
@@ -230,6 +240,9 @@ class PoEMarcutGUI(QMainWindow):
             QDoubleValidator(bottom=gt_val, top=lt_val, decimals=2, parent=self.min_actual_factor_le)
         )
         self.min_actual_factor_le.returnPressed.connect(
+            partial(self.process_qle_float, "Logic", "min_actual_factor", self.min_actual_factor_le)
+        )
+        self.min_actual_factor_le.editingFinished.connect(
             partial(self.process_qle_float, "Logic", "min_actual_factor", self.min_actual_factor_le)
         )
         maf_row_layout.addWidget(self.min_actual_factor_le, stretch=1)
@@ -390,24 +403,117 @@ class PoEMarcutGUI(QMainWindow):
 
         self.side_settings_layout.addLayout(righthalf_layout)
 
+        # React to external setting changes and update widgets
+        try:
+            self.settings_man.settings_changed.connect(self._on_setting_changed)
+        except Exception:
+            logger.exception("Failed to connect settings_changed signal")
+
     def process_qle_text(self, category: str, setting: str, qle: QLineEdit) -> None:
         """Process input for a specific text setting."""
-        settings.SettingsManager().set_setting(category, setting, qle.text())
+        try:
+            self.settings_man.set_setting(category, setting, qle.text())
+        except Exception:
+            logger.exception("Failed to set text setting %s.%s", category, setting)
 
     def process_qle_float(self, category: str, setting: str, qle: QLineEdit) -> None:
         """Process input for a specific float setting."""
         try:
             value = float(qle.text())
-            settings.SettingsManager().set_setting(category, setting, value)
+            self.settings_man.set_setting(category, setting, value)
         except ValueError:
             pass  # Invalid float input; ignore
+        except Exception:
+            logger.exception("Failed to set float setting %s.%s", category, setting)
 
     def process_qcb(self, category: str, setting: str, checkbox: QCheckBox) -> None:
         """Process input for a specific boolean setting."""
-        settings.SettingsManager().set_setting(category, setting, checkbox.isChecked())
+        try:
+            self.settings_man.set_setting(category, setting, checkbox.isChecked())
+        except Exception:
+            logger.exception("Failed to set checkbox setting %s.%s", category, setting)
 
-    def process_qlw(self, category: str, setting: str, list_widget: QListWidget) -> None:
-        """Process input for a specific list setting."""
+    def process_qlw(self, category: str, setting: str, list_widget: QListWidget, *_: object) -> None:
+        """Process input for a specific list setting.
+
+        Accepts extra positional args from Qt signals and ignores them.
+        """
+        # Collect the current items from the QListWidget and store them in settings
+        items: list[str] = []
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            if item is not None:
+                items.append(item.text())
+        try:
+            self.settings_man.set_setting(category, setting, items)
+        except Exception:
+            logger.exception("Failed to update list setting %s.%s", category, setting)
+
+    def _on_setting_changed(self, full_field: str, value: object) -> None:  # noqa: C901, PLR0912, PLR0915
+        """Slot called when a setting is changed; updates the corresponding widget.
+
+        The `full_field` is in the form "category.field".
+        """
+        try:
+            category, setting = full_field.split(".", 1)
+        except ValueError:
+            return
+        category = category.lower()
+        setting = setting.lower()
+
+        if category == "keys":
+            if setting in getattr(self, "key_lineedits", {}):
+                le = self.key_lineedits[setting]
+                with QSignalBlocker(le):
+                    le.setText(str(value))
+        elif category == "logic":
+            if setting == "adjustment_factor":
+                with QSignalBlocker(self.adj_factor_le):
+                    self.adj_factor_le.setText(str(value))
+            elif setting == "min_actual_factor":
+                with QSignalBlocker(self.min_actual_factor_le):
+                    self.min_actual_factor_le.setText(str(value))
+            elif setting == "enter_after_calcprice":
+                with QSignalBlocker(self.enter_after_cb):
+                    self.enter_after_cb.setChecked(bool(value))
+        elif category == "currency":
+            if setting == "assume_highest_currency":
+                with QSignalBlocker(self.assume_highest_currency_cb):
+                    self.assume_highest_currency_cb.setChecked(bool(value))
+            elif setting == "poe1currencies":
+                with QSignalBlocker(self.p1c_list_widget):
+                    self.p1c_list_widget.clear()
+                    if value:
+                        self.p1c_list_widget.addItems(value)
+            elif setting == "poe2currencies":
+                with QSignalBlocker(self.p2c_list_widget):
+                    self.p2c_list_widget.clear()
+                    if value:
+                        self.p2c_list_widget.addItems(value)
+            elif setting == "active_game":
+                with QSignalBlocker(self.active_game_le):
+                    self.active_game_le.setText(str(value))
+            elif setting == "active_league":
+                with QSignalBlocker(self.active_league_le):
+                    self.active_league_le.setText(str(value))
+            elif setting == "autoupdate":
+                with QSignalBlocker(self.autoupdate_cb):
+                    self.autoupdate_cb.setChecked(bool(value))
+            elif setting == "poe1leagues":
+                with QSignalBlocker(self.p1l_list_widget):
+                    self.p1l_list_widget.clear()
+                    if value:
+                        self.p1l_list_widget.addItems(value)
+                # update combo without triggering its signals
+                with QSignalBlocker(self.league_combo):
+                    self.populate_league_combo()
+            elif setting == "poe2leagues":
+                with QSignalBlocker(self.p2l_list_widget):
+                    self.p2l_list_widget.clear()
+                    if value:
+                        self.p2l_list_widget.addItems(value)
+                with QSignalBlocker(self.league_combo):
+                    self.populate_league_combo()
 
     def toggle_always_on_top(self) -> None:
         """Toggle the always-stays-on-top window flag."""
@@ -454,7 +560,7 @@ class PoEMarcutGUI(QMainWindow):
 
     def populate_league_combo(self) -> None:
         """Populate the league combo box."""
-        settings_man: settings.SettingsManager = settings.SettingsManager()
+        settings_man: settings.SettingsManager = self.settings_man
         self.league_combo.clear()
         for poe1league in settings_man.settings.currency.poe1leagues:
             self.league_combo.addItem(f"{poe1league} [PoE1]")
@@ -467,14 +573,20 @@ class PoEMarcutGUI(QMainWindow):
     def get_poe1_leagues(self) -> None:
         """Get PoE1 leagues, update settings and UI."""
         leagues: list[str] | None = currency.get_leagues(game=1)
-        settings.SettingsManager().set_setting("currency", "poe1leagues", leagues)
+        try:
+            self.settings_man.set_setting("currency", "poe1leagues", leagues)
+        except Exception:
+            logger.exception("Failed to update poe1leagues from get_poe1_leagues")
         self.populate_league_combo()
         self.populate_league_settings()
 
     def get_poe2_leagues(self) -> None:
         """Get PoE2 leagues, update settings and UI."""
         leagues: list[str] | None = currency.get_leagues(game=2)
-        settings.SettingsManager().set_setting("currency", "poe2leagues", leagues)
+        try:
+            self.settings_man.set_setting("currency", "poe2leagues", leagues)
+        except Exception:
+            logger.exception("Failed to update poe2leagues from get_poe2_leagues")
         self.populate_league_combo()
         self.populate_league_settings()
 
@@ -485,10 +597,19 @@ class PoEMarcutGUI(QMainWindow):
         # Parse selection and show a quick loading message
         league, game_str = self.league_combo.currentText().replace("]", "").split(" [")
         if game_str == "PoE1":
-            settings.SettingsManager().set_setting("currency", "active_game", 1)
+            try:
+                self.settings_man.set_setting("currency", "active_game", 1)
+            except Exception:
+                logger.exception("Failed to set active_game")
         else:
-            settings.SettingsManager().set_setting("currency", "active_game", 2)
-        settings.SettingsManager().set_setting("currency", "active_league", league)
+            try:
+                self.settings_man.set_setting("currency", "active_game", 2)
+            except Exception:
+                logger.exception("Failed to set active_game")
+        try:
+            self.settings_man.set_setting("currency", "active_league", league)
+        except Exception:
+            logger.exception("Failed to set active_league")
         self.currency_text.setText(f"Loading currency data for {self.league_combo.currentText()}...")
 
         # Run in background thread so UI stays responsive
@@ -511,7 +632,7 @@ class PoEMarcutGUI(QMainWindow):
             )
             return
 
-        settings_man: settings.SettingsManager = settings.SettingsManager()
+        settings_man: settings.SettingsManager = self.settings_man
 
         if primary_currency == "chaos":
             try:
