@@ -3,44 +3,44 @@ You log in to PoE for the day and you have a bunch of unsold items in your merch
 
 Are you going to price check every single one of them again? No way, total waste of time.
 
-Instead, quickly adjust each item downward by a set percentage using PoEMarcut. Repeat next time until they sell or they reach nothing and you vendor them.
+Instead, PoEMarcut assists you in quickly adjusting items downward. Repeat next time you log on until items sell or they reach nothing and you vendor them.
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I7ROZFD) - [![patreon](https://github.com/user-attachments/assets/b7841f4d-5bcc-4642-a04c-2f22e5c48a24)](https://patreon.com/cdrpt) - [![discord](https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/66e3d74e9607e61eeec9c91b_Logo.svg)](https://discord.gg/gRMjT5gVms)
 
 ## Usage
-1. Run `poemarcut`. It will run in the background.
+1. Run `poemarcut`. It now has a GUI! (cli available from source)
 2. Hover your mouse cursor over an item in a merchant tab.
-3. Press `F2` (default) or `right-click` to open the item price dialog.
-4. Press `F3` (default) to adjust the price text downward by 0.9x (default) and close the dialog.
+3. Press `F1` (default) to copy the currency type from the item (optional). NEW option!
+4. Press `F2` (default) or `right-click` to open the item price dialog.
+5. Press `F3` (default) to adjust the price text downward by 0.9x (default) and close the dialog.
+   NEW! F3 will change to the next-lowest configured currency when the current amount is 1 or below the min_factor.
    
-Press `F6` (default) to exit the tool when desired.
+Press `F6` (default) to disable hotkeys if desired. Hotkeys can be toggled from the GUI. (F6 exits in CLI)
 
-The new price is always rounded down (decimal is truncated), to ensure the price is always reduced, even when the existing price is `2` (which will become `1`).
+The new price is always rounded down (decimal is truncated), to ensure the price is always reduced, even when the existing price is `2` (which will become `1` unless configured otherwise).
 
-An existing price of `1` will not be changed.
+An existing price of `1` will be changed into the next lowest currency if configured.
 
 An optional setting `min_actual_factor` will prevent very low prices from being reduced further, eg `0.6` will prevent `2` from being reduced to `1` (0.5 actual, 0.6 minimum).
 
-For use when existing price is `1`, a list of suggested new prices in less valuable currencies is printed to the terminal using current poe.ninja economy data.
+A list of currency conversions is also displayed per current poe.ninja economy data.
 
 ## GGG TOS Compliance
-100% [TOS policy compliant](https://www.pathofexile.com/developer/docs#policy) and legal. The tool is a simple keyboard macro that only performs one 'server action' per key press, following the policy.
+Completely [GGG TOS policy compliant](https://www.pathofexile.com/developer/docs#policy) and legal. The tool is a simple keyboard macro that only performs one 'server action' per key press, following the policy.
+You have to invoke each action of the tool on each item you want to reprice.
 
 ## Installation / Running
 
-Download and extract the zip from [Github Releases](https://github.com/cdrg/poemarcut/releases/latest) containing `poemarcut.exe` and `settings.yaml`. Run `poemarcut.exe`.
+Download from [Github Releases](https://github.com/cdrg/poemarcut/releases/latest). Run `poemarcut.exe`.
 
 Alternatively [run the source from the command line](https://github.com/cdrg/poemarcut#running-from-the-command-line) with python.
 
 ## Settings
-Settings such as hotkeys, price adjustment percentage, leagues, etc are contained in `settings.yaml`. 
+Settings such as hotkeys, price adjustment percentage, leagues, etc can be edited in the GUI and are stored in `settings.yaml`.
+
+`settings.yaml` is created with defaults if it doesn't exist at start.
 
 This plain-text file can be edited with any text editor and contains descriptions of each setting.
-
-## Links
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I7ROZFD)
-
-[![patreon](https://github.com/user-attachments/assets/b7841f4d-5bcc-4642-a04c-2f22e5c48a24)](https://patreon.com/cdrpt)
-
-[![discord](https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/66e3d74e9607e61eeec9c91b_Logo.svg)](https://discord.gg/gRMjT5gVms)
 
 ## Credits
 Inspired by the proof-of-concept by [@nickycakes](https://github.com/nickycakes/poe2price)
