@@ -153,9 +153,9 @@ def main() -> int:
     games: list[int] = [1, 2]
     for game in games:
         league = (
-            settings_man.settings.currency.poe1leagues[0]
+            next(iter(settings_man.settings.currency.poe1leagues))
             if game == 1
-            else settings_man.settings.currency.poe2leagues[0]
+            else next(iter(settings_man.settings.currency.poe2leagues))
         )
         data = currency.store.get_data(game=game, league=league, update=settings_man.settings.currency.autoupdate)
         print_last_updated(game, league, data.get("mtime", 0))
