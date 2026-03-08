@@ -176,9 +176,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         if isinstance(key, (Key, KeyCode)) and key == copyitem_key:
             # Send ctrl+alt+c to copy hovered item text to clipboard
             pyautogui.hotkey("ctrl", "alt", "c")
-            price, ptype = extract_price(pyperclip.paste())
+            price, cur_type = extract_price(pyperclip.paste())
             with _state_lock:
-                _last_price, _last_type = price, ptype
+                _last_price, _last_type = price, cur_type
 
         if isinstance(key, (Key, KeyCode)) and key == rightclick_key:
             # Right click to open price dialog
@@ -197,115 +197,120 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 last_price, last_cur_type = _last_price, _last_type
 
             try:
-                # Get current price from clipboard. Strip any thousands separators (locale dependent).
-                # Future: handle fractional values? which are supported in stash tabs but not merchant
-                copied_price: int = int(pyperclip.paste().replace(",", "").replace(".", ""))
-            except ValueError:
-                logger.warning(
-                    "Clipboard value '%s' is not a valid integer. Aborting price calculation.",
-                    pyperclip.paste(),
-                )
-                return True  # do nothing if clipboard value is not a valid int
+                try:
+                    # Get current price from clipboard. Strip any thousands separators (locale dependent).
+                    # Future: handle fractional values? which are supported in stash tabs but not merchant
+                    copied_price: int = int(pyperclip.paste().replace(",", "").replace(".", ""))
+                except ValueError:
+                    logger.warning(
+                        "Clipboard value '%s' is not a valid integer. Aborting price calculation.",
+                        pyperclip.paste(),
+                    )
+                    return True  # do nothing if clipboard value is not a valid int
 
-            if (
-                last_price is not None and last_price != copied_price
-            ):  # sanity check that both parsed prices are the same
-                logger.warning(
-                    "Clipboard price (%d) does not match expected last price (%d). Aborting price calculation.",
-                    copied_price,
-                    last_price,
-                )
-                return True  # do nothing if clipboard price doesn't match previously parsed price
-
-            if copied_price < 1:
-                logger.error("Parsed price is less than 1 (%d). Aborting price calculation.", copied_price)
-                return True  # do nothing if current price is less than 1
-
-            # if we don't know the currency type and assume_highest is enabled, assume the currency type is the highest
-            if not last_cur_type and settings_man.settings.currency.assume_highest_currency:
-                last_cur_type = currencies[0] if currencies else None
-
-            actual_adj_factor: float = int(copied_price * adjustment_factor) / copied_price
-            next_cur_type: str | None = None
-            if copied_price == 1 or actual_adj_factor <= min_actual_factor:
-                # if we know the copied currency type and it's in our list of convertible currencies and it's not the final currency
-                if last_cur_type is not None and last_cur_type in currencies and last_cur_type != list(currencies)[-1]:
-                    next_cur_type = list(currencies)[list(currencies).index(last_cur_type) + 1]
-                    # convert the price as the equivalent amount of the next currency type
-                    # get_exchange_rate returns a whole number if the more valuable currency is the first argument
-                    try:
-                        exchange_rate: float = currency.get_exchange_rate(
-                            game=game, league=league, from_currency=last_cur_type, to_currency=next_cur_type
-                        )
-                    except LookupError:
-                        logger.error(  # noqa: TRY400
-                            "Failed to get exchange rate for game %i league %s from %s to %s. Price not adjusted.",
-                            game,
-                            league,
-                            last_cur_type,
-                            next_cur_type,
-                        )
-                        return True  # do nothing if exchange rate retrieval fails
-                    copied_price = int(exchange_rate)
-                    logger.info(
-                        "Price is %d %s, converting to equivalent of %d %s based on exchange rate %.2f",
-                        last_price,
-                        last_cur_type,
+                if (
+                    last_price is not None and last_price != copied_price
+                ):  # sanity check that both parsed prices are the same
+                    logger.warning(
+                        "Clipboard price (%d) does not match expected last price (%d). Aborting price calculation.",
                         copied_price,
-                        next_cur_type,
-                        exchange_rate,
-                    )
-                elif copied_price == 1:
-                    logger.info(
-                        "Price is 1 %s, but cannot convert to next currency. Either currency type is unknown, not in the list of convertible currencies, or is the final currency.",
-                        last_cur_type or "unknown",
-                    )
-                    return True  # do nothing if parsed int is 1 and we do not know the currency type or it's the final type
-                elif actual_adj_factor < min_actual_factor:
-                    logger.info(
-                        "Calculated adjustment factor %.2f [trunc(%d*%.2f)/%d] is less than the minimum adjustment factor %.2f. Price not adjusted.",
-                        actual_adj_factor,
                         last_price,
-                        adjustment_factor,
-                        last_price,
-                        min_actual_factor,
                     )
-                    return True  # do nothing if the actual adjustment factor is less than the minimum allowed factor (enforce maximum discount)
+                    return True  # do nothing if clipboard price doesn't match previously parsed price
 
-            # Calculate the new discounted price, rounding down (truncate) to ensure price always decreases
-            new_price: int = int(copied_price * adjustment_factor)
+                if copied_price < 1:
+                    logger.error("Parsed price is less than 1 (%d). Aborting price calculation.", copied_price)
+                    return True  # do nothing if current price is less than 1
 
-            # Have to press backspace first because of PoE paste bug.
-            # (If text is selected and text cursor is at end of line, pasting will fail.)
-            pyautogui.press("backspace")
+                # if we don't know the currency type and assume_highest is enabled, assume the currency type is the highest
+                if not last_cur_type and settings_man.settings.currency.assume_highest_currency:
+                    last_cur_type = currencies[0] if currencies else None
 
-            time.sleep(0.35)  # small delay to ensure backspace completes before pasting
+                actual_adj_factor: float = int(copied_price * adjustment_factor) / copied_price
+                next_cur_type: str | None = None
+                if copied_price == 1 or actual_adj_factor <= min_actual_factor:
+                    # if we know the copied currency type and it's in our list of convertible currencies and it's not the final currency
+                    if (
+                        last_cur_type is not None
+                        and last_cur_type in currencies
+                        and last_cur_type != list(currencies)[-1]
+                    ):
+                        next_cur_type = list(currencies)[list(currencies).index(last_cur_type) + 1]
+                        # convert the price as the equivalent amount of the next currency type
+                        # get_exchange_rate returns a whole number if the more valuable currency is the first argument
+                        try:
+                            exchange_rate: float = currency.get_exchange_rate(
+                                game=game, league=league, from_currency=last_cur_type, to_currency=next_cur_type
+                            )
+                        except LookupError:
+                            logger.error(  # noqa: TRY400
+                                "Failed to get exchange rate for game %i league %s from %s to %s. Price not adjusted.",
+                                game,
+                                league,
+                                last_cur_type,
+                                next_cur_type,
+                            )
+                            return True  # do nothing if exchange rate retrieval fails
+                        copied_price = int(exchange_rate)
+                        logger.info(
+                            "Price is %d %s, converting to equivalent of %d %s based on exchange rate %.2f",
+                            last_price,
+                            last_cur_type,
+                            copied_price,
+                            next_cur_type,
+                            exchange_rate,
+                        )
+                    elif copied_price == 1:
+                        logger.info(
+                            "Price is 1 %s, but cannot convert to next currency. Either currency type is unknown, not in the list of convertible currencies, or is the final currency.",
+                            last_cur_type or "unknown",
+                        )
+                        return True  # do nothing if parsed int is 1 and we do not know the currency type or it's the final type
+                    elif actual_adj_factor < min_actual_factor:
+                        logger.info(
+                            "Calculated adjustment factor %.2f [trunc(%d*%.2f)/%d] is less than the minimum adjustment factor %.2f. Price not adjusted.",
+                            actual_adj_factor,
+                            last_price,
+                            adjustment_factor,
+                            last_price,
+                            min_actual_factor,
+                        )
+                        return True  # do nothing if the actual adjustment factor is less than the minimum allowed factor (enforce maximum discount)
 
-            # Paste the new price from clipboard
-            pyperclip.copy(str(new_price))
-            pyautogui.hotkey("ctrl", "v")
+                # Calculate the new discounted price, rounding down (truncate) to ensure price always decreases
+                new_price: int = int(copied_price * adjustment_factor)
 
-            # Change currency dropdown if currency was converted
-            if next_cur_type is not None:
-                # tab to switch focus to currency dropdown
-                pyautogui.press("tab")
+                # Have to press backspace first because of PoE paste bug.
+                # (If text is selected and text cursor is at end of line, pasting will fail.)
+                pyautogui.press("backspace")
 
-                # type the characters of the shortest possible prefix of the full currency name
-                # one by one to move the dropdown selection
-                prefix = currency.merchant_currency_prefixes[next_cur_type]
-                time.sleep(0.6)  # long delay is needed for the dropdown to be ready for whatever reason
-                pyautogui.write(prefix, interval=0.1)
+                time.sleep(0.35)  # small delay to ensure backspace completes before pasting
 
-                # enter to confirm the dropdown selection
-                pyautogui.press("enter")
+                # Paste the new price from clipboard
+                pyperclip.copy(str(new_price))
+                pyautogui.hotkey("ctrl", "v")
 
-            if enter_after_calcprice:
-                # Press enter to confirm new price
-                pyautogui.press("enter")
+                # Change currency dropdown if currency was converted
+                if next_cur_type is not None:
+                    # tab to switch focus to currency dropdown
+                    pyautogui.press("tab")
 
-            # Clear persisted price/type since we don't care about it any more
-            with _state_lock:
-                _last_price, _last_type = None, None
+                    # type the characters of the shortest possible prefix of the full currency name
+                    # one by one to move the dropdown selection
+                    prefix = currency.merchant_currency_prefixes[next_cur_type]
+                    time.sleep(0.6)  # long delay is needed for the dropdown to be ready for whatever reason
+                    pyautogui.write(prefix, interval=0.1)
+
+                    # enter to confirm the dropdown selection
+                    pyautogui.press("enter")
+
+                if enter_after_calcprice:
+                    # Press enter to confirm new price
+                    pyautogui.press("enter")
+            finally:
+                # Clear persisted price/type since it was processed and is no longer valid.
+                with _state_lock:
+                    _last_price, _last_type = None, None
 
         elif isinstance(key, (Key, KeyCode)) and key == enter_key:
             if not enter_after_calcprice:
