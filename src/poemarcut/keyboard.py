@@ -5,6 +5,7 @@ import logging
 import platform
 import re
 import time
+from collections.abc import Callable
 from threading import Lock
 from typing import Any
 
@@ -49,17 +50,24 @@ class KeyboardListenerManager:
         self,
         *,
         blocking: bool = True,
+        on_stop: Callable[[], None] | None = None,
     ) -> Listener | None:
         """Start and track a `pynput` Listener with the provided parameters.
 
         Returns: the started `Listener` when `blocking` is False, otherwise
         blocks until the listener exits and returns None.
         """
-        listener = Listener(
-            on_release=lambda key: on_release(
-                key=key,
-            )  # type: ignore[attr-defined]
-        )
+
+        def _on_release(key: Key | KeyCode | None) -> bool:
+            should_continue = on_release(key=key)
+            if not should_continue and on_stop is not None:
+                try:
+                    on_stop()
+                except Exception:
+                    logger.exception("Exception while running listener stop callback.")
+            return should_continue
+
+        listener = Listener(on_release=_on_release)  # type: ignore[arg-type]
 
         with self._lock:
             self._listener = listener
@@ -105,17 +113,21 @@ _listener_manager = KeyboardListenerManager()
 def start_listener(
     *,
     blocking: bool = True,
+    on_stop: Callable[[], None] | None = None,
 ) -> Listener | None:
     """Start the keyboard listener.
 
     Args:
         blocking (bool): Whether to block the main thread with the listener. If False, the listener will run in a separate thread.
+        on_stop (Callable[[], None] | None): Optional callback invoked when
+            the listener stops itself by handling the configured stop key.
 
     """
     # Delegate to the module-level singleton manager. The manager handles
     # storing and stopping the active Listener instance.
     return _listener_manager.start(
         blocking=blocking,
+        on_stop=on_stop,
     )
 
 
@@ -171,7 +183,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         rightclick_key = keys["rightclick_key"]
         calcprice_key = keys["calcprice_key"]
         enter_key = keys["enter_key"]
-        exit_key = keys["exit_key"]
+        stop_key = keys["stop_key"]
 
         if isinstance(key, (Key, KeyCode)) and key == copyitem_key:
             # Send ctrl+alt+c to copy hovered item text to clipboard
@@ -317,7 +329,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 # Press enter to confirm new price
                 pyautogui.press("enter")
 
-        elif isinstance(key, (Key, KeyCode)) and key == exit_key:
+        elif isinstance(key, (Key, KeyCode)) and key == stop_key:
             return False
 
     except (OSError, RuntimeError, ValueError, pyautogui.FailSafeException):

@@ -146,7 +146,7 @@ def main() -> int:
     print(f'Press "{keys["calcprice_key"]}" to adjust price')
     if not settings_man.settings.currency.autoupdate:
         print(f'press "{keys["enter_key"]}" or "enter" to set the new price.')
-    print(f'Press "{keys["exit_key"]}" to exit the program.')
+    print(f'Press "{keys["stop_key"]}" to exit the program.')
     print("================================")
 
     # Fetch and print currency values

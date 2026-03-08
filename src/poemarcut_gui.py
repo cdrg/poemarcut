@@ -73,6 +73,8 @@ class PoEMarcutGUI(QMainWindow):
 
     # Emitted when background currency fetch completes (dict with 'success' and 'lines' or 'error' keys)
     currency_data_ready = pyqtSignal(object)
+    # Emitted when keyboard listener stops itself (e.g. stop_key pressed)
+    hotkeys_listener_stopped = pyqtSignal()
 
     def __init__(self) -> None:
         """Initialize the PoEMarcut GUI window and set up the user interface."""
@@ -113,6 +115,7 @@ class PoEMarcutGUI(QMainWindow):
 
         # Signal used to update the UI from a background thread
         self.currency_data_ready.connect(self._display_currency_suggestions)
+        self.hotkeys_listener_stopped.connect(self._on_hotkeys_listener_stopped)
 
         self.show_currency_suggestions()
 
@@ -628,7 +631,7 @@ class PoEMarcutGUI(QMainWindow):
         """Enable or disable the keyboard hotkeys listener."""
         if not self.hotkeys_enabled:
             try:
-                listener = keyboard.start_listener(blocking=False)
+                listener = keyboard.start_listener(blocking=False, on_stop=self._notify_hotkeys_listener_stopped)
             except Exception:
                 logger.exception("Failed to start hotkeys listener.")
                 return
@@ -637,19 +640,33 @@ class PoEMarcutGUI(QMainWindow):
                 logger.warning("Hotkeys listener did not start (blocking returned None).")
                 return
 
-            self.hotkeys_enabled = True
-            self.hotkeys_button.setText("Disable hotkeys")
-            self.indicator.setStyleSheet(qradiobutton_greenlight)
-            self.indicator.setToolTip("Hotkeys enabled.")
+            self._set_hotkeys_ui_state(enabled=True)
         else:
             try:
                 keyboard.stop_listener()
             except Exception:
                 logger.exception("Failed to stop hotkeys listener.")
-            self.hotkeys_enabled = False
-            self.hotkeys_button.setText("Enable hotkeys")
-            self.indicator.setStyleSheet(qradiobutton_redlight)
-            self.indicator.setToolTip("Hotkeys disabled.")
+            self._set_hotkeys_ui_state(enabled=False)
+
+    def _notify_hotkeys_listener_stopped(self) -> None:
+        """Notify the GUI thread that the listener has stopped itself."""
+        self.hotkeys_listener_stopped.emit()
+
+    def _on_hotkeys_listener_stopped(self) -> None:
+        """Update button and indicator when listener exits from stop_key."""
+        self._set_hotkeys_ui_state(enabled=False)
+
+    def _set_hotkeys_ui_state(self, *, enabled: bool) -> None:
+        """Set hotkeys button text and indicator to match listener state."""
+        self.hotkeys_enabled = enabled
+        if enabled:
+            self.hotkeys_button.setText("Disable hotkeys")
+            self.indicator.setStyleSheet(qradiobutton_greenlight)
+            self.indicator.setToolTip("Hotkeys enabled.")
+            return
+        self.hotkeys_button.setText("Enable hotkeys")
+        self.indicator.setStyleSheet(qradiobutton_redlight)
+        self.indicator.setToolTip("Hotkeys disabled.")
 
     def populate_league_combo(self) -> None:
         """Populate the league combo box."""

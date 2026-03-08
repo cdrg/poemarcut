@@ -33,11 +33,9 @@ class KeySettings(BaseModel):
         description="Copies the old price, calculates new, and pastes new price into the dialog (and optionally presses 'enter')",
     )
     enter_key: str = Field(default="f4", description="'Enter' key confirms the new price in the dialog")
-    exit_key: str = Field(
-        default="f6", description="Exit the program. Many tools use f5 for '/hideout', so f6 is default"
-    )
+    stop_key: str = Field(default="f6", description="Stop listening for hotkeys until re-enabled")
 
-    @field_validator("copyitem_key", "rightclick_key", "calcprice_key", "enter_key", "exit_key")
+    @field_validator("copyitem_key", "rightclick_key", "calcprice_key", "enter_key", "stop_key")
     @classmethod
     def validate_keys(cls, key: str) -> str:
         """Validate that keys are not empty."""
