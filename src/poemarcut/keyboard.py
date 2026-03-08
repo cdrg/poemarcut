@@ -236,6 +236,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
 
                 # if we don't know the currency type and assume_highest is enabled, assume the currency type is the highest
                 if not last_cur_type and settings_man.settings.currency.assume_highest_currency:
+                    last_price = copied_price
                     last_cur_type = currencies[0] if currencies else None
 
                 actual_adj_factor: float = int(copied_price * adjustment_factor) / copied_price
