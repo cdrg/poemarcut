@@ -108,18 +108,18 @@ class CurrencySettings(BaseModel):
                 msg = f"No PoE1 leagues defined, setting active league '{self.active_league}' as the only PoE1 league."
                 logger.warning(msg)
                 return self
-            self.active_league = poe1[0]
-            msg = f"'{self.active_league}' must be in {poe1}, setting active league to '{self.active_league}'."
+            msg = f"'{self.active_league}' must be in {poe1}, setting active league to '{poe1[0]}'."
             logger.warning(msg)
+            self.active_league = poe1[0]
         if self.active_game == 2 and self.active_league not in poe2:  # noqa: PLR2004
             if not poe2:
                 self.poe2leagues = {self.active_league}
                 msg = f"No PoE2 leagues defined, setting active league '{self.active_league}' as the only PoE2 league."
                 logger.warning(msg)
                 return self
-            self.active_league = poe2[0]
-            msg = f"'{self.active_league}' must be in {poe2}, setting active league to '{self.active_league}'."
+            msg = f"'{self.active_league}' must be in {poe2}, setting active league to '{poe2[0]}'."
             logger.warning(msg)
+            self.active_league = poe2[0]
         return self
 
 

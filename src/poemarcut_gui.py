@@ -2,8 +2,6 @@
 
 import logging
 import sys
-import threading
-import time
 from collections.abc import Iterable
 from functools import partial
 from logging.handlers import RotatingFileHandler
@@ -26,7 +24,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QRadioButton,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -82,7 +79,7 @@ class PoEMarcutGUI(QMainWindow):
         # Use the shared SettingsManager singleton
         self.settings_man: settings.SettingsManager = settings.settings_manager
         self.setWindowTitle("PoE Marcut")
-        self.setGeometry(400, 100, 650, 600)
+        self.setGeometry(400, 100, 450, 600)
 
         self.custom_font_family: str = "default"
 
@@ -114,10 +111,7 @@ class PoEMarcutGUI(QMainWindow):
         self.init_ui()
 
         # Signal used to update the UI from a background thread
-        self.currency_data_ready.connect(self._display_currency_suggestions)
         self.hotkeys_listener_stopped.connect(self._on_hotkeys_listener_stopped)
-
-        self.show_currency_suggestions()
 
     def init_ui(self) -> None:
         """Set up the user interface components."""
@@ -135,12 +129,13 @@ class PoEMarcutGUI(QMainWindow):
         main_layout.addWidget(QLabel("Choose league:"), 1, 0, 1, 1)
         self.league_combo: QComboBox = QComboBox()
         self.populate_league_combo()
-        self.league_combo.currentIndexChanged.connect(self.show_currency_suggestions)
+        # Update active game/league when the user selects a league
+        self.league_combo.currentIndexChanged.connect(self._on_league_combo_changed)
         main_layout.addWidget(self.league_combo, 2, 0, 1, 1)
 
-        self.currency_text: QTextEdit = QTextEdit("")
-        self.currency_text.setReadOnly(True)
-        main_layout.addWidget(self.currency_text, 3, 0, 1, 3)
+        self.currency_list: QListWidget = QListWidget()
+        main_layout.addWidget(self.currency_list, 3, 0, 1, 3)
+        self.populate_currency_list()
 
         self.settings_button: QPushButton = QPushButton("Settings...")
         self.settings_button.clicked.connect(self.toggle_settings_panel)
@@ -443,6 +438,24 @@ class PoEMarcutGUI(QMainWindow):
         layout.addWidget(remove_btn)
         return container
 
+    def _make_currency_display_widget(self, currency_name: str, value_text: str | None) -> QWidget:
+        """Create a compact QWidget showing a currency name and a value label beside it.
+
+        `value_text` is expected to already be formatted (e.g. "100.00 chaos").
+        """
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 2, 4, 2)
+        name_lbl = QLabel(currency_name)
+        val_lbl = QLabel(value_text or "")
+        val_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        layout.addWidget(name_lbl)
+        layout.addSpacing(8)
+        layout.addWidget(val_lbl)
+        layout.addStretch()
+        return container
+
     def _remove_list_item(self, list_widget: QListWidget, text: str, category: str, setting: str) -> None:
         """Remove the first matching item with `text` from `list_widget` and save settings."""
         for i in range(list_widget.count()):
@@ -581,14 +594,17 @@ class PoEMarcutGUI(QMainWindow):
                 val = value or []
                 items = list(val) if isinstance(val, Iterable) else []
                 self._populate_list_widget(self.p1c_list_widget, items, "Currency", "poe1currencies")
+            self.populate_currency_list()
         elif setting == "poe2currencies":
             with QSignalBlocker(self.p2c_list_widget):
                 val = value or []
                 items = list(val) if isinstance(val, Iterable) else []
                 self._populate_list_widget(self.p2c_list_widget, items, "Currency", "poe2currencies")
+            self.populate_currency_list()
         elif setting == "active_game":
             with QSignalBlocker(self.active_game_le):
                 self.active_game_le.setText(str(value))
+            self.populate_currency_list()
         elif setting == "active_league":
             with QSignalBlocker(self.active_league_le):
                 self.active_league_le.setText(str(value))
@@ -662,11 +678,11 @@ class PoEMarcutGUI(QMainWindow):
         if enabled:
             self.hotkeys_button.setText("Disable hotkeys")
             self.indicator.setStyleSheet(qradiobutton_greenlight)
-            self.indicator.setToolTip("Hotkeys enabled.")
+            self.indicator.setToolTip("Hotkeys enabled")
             return
         self.hotkeys_button.setText("Enable hotkeys")
         self.indicator.setStyleSheet(qradiobutton_redlight)
-        self.indicator.setToolTip("Hotkeys disabled.")
+        self.indicator.setToolTip("Hotkeys disabled")
 
     def populate_league_combo(self) -> None:
         """Populate the league combo box."""
@@ -676,9 +692,83 @@ class PoEMarcutGUI(QMainWindow):
             self.league_combo.addItem(f"{poe1league} [PoE1]")
         for poe2league in settings_man.settings.currency.poe2leagues:
             self.league_combo.addItem(f"{poe2league} [PoE2]")
+        # Select the currently active game/league from settings, if present
+        try:
+            active_game = settings_man.settings.currency.active_game
+            active_league = settings_man.settings.currency.active_league
+            desired = f"{active_league} [PoE1]" if active_game == 1 else f"{active_league} [PoE2]"
+            # Find and set without emitting signals
+            idx = -1
+            for i in range(self.league_combo.count()):
+                if self.league_combo.itemText(i) == desired:
+                    idx = i
+                    break
+            if idx >= 0:
+                with QSignalBlocker(self.league_combo):
+                    self.league_combo.setCurrentIndex(idx)
+        except (AttributeError, TypeError, IndexError):
+            logger.exception("Failed to set league_combo to active league from settings")
+
+    def populate_currency_list(self) -> None:
+        """Populate the main currency list for the currently active game."""
+        currency_settings = self.settings_man.settings.currency
+        currencies = (
+            currency_settings.poe1currencies if currency_settings.active_game == 1 else currency_settings.poe2currencies
+        )
+        self.currency_list.clear()
+        if not currencies:
+            return
+        game = currency_settings.active_game
+        league = currency_settings.active_league
+        for idx, c in enumerate(currencies):
+            # Compute rate of this currency in terms of the next currency (if any)
+            rate_text = ""
+            if idx != len(currencies) - 1:
+                try:
+                    rate = currency.get_exchange_rate(game, league, c, currencies[idx + 1])
+                    rate_text = f"({rate:.2f} {currencies[idx + 1]})"
+                except (LookupError, ValueError, TypeError):
+                    rate_text = ""
+
+            widget = self._make_currency_display_widget(str(c), rate_text)
+            lw_item = QListWidgetItem()
+            lw_item.setSizeHint(widget.sizeHint())
+            self.currency_list.addItem(lw_item)
+            self.currency_list.setItemWidget(lw_item, widget)
+
+            # Insert a centered, non-interactive downward arrow between currencies
+            if idx != len(currencies) - 1:
+                arrow = QListWidgetItem("↓")
+                arrow.setFlags(Qt.ItemFlag.NoItemFlags)
+                arrow.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+                self.currency_list.addItem(arrow)
 
     def populate_league_settings(self) -> None:
         """Populate the league settings."""
+
+    def _on_league_combo_changed(self, index: int) -> None:
+        """Handle user selection in `league_combo` and persist active game/league.
+
+        Items in the combo are formatted as "<league> [PoE1]" or "<league> [PoE2]".
+        """
+        try:
+            text = self.league_combo.currentText() if index is None or index < 0 else self.league_combo.itemText(index)
+            if not text:
+                return
+            if text.endswith(" [PoE1]"):
+                game = 1
+                league = text[: -len(" [PoE1]")]
+            elif text.endswith(" [PoE2]"):
+                game = 2
+                league = text[: -len(" [PoE2]")]
+            else:
+                return
+
+            # Persist the selection
+            self.settings_man.set_setting("currency", "active_game", game)
+            self.settings_man.set_setting("currency", "active_league", league)
+        except (AttributeError, TypeError, ValueError, settings.ValidationError):
+            logger.exception("Failed to persist active game/league from league_combo selection")
 
     def get_poe1_leagues(self) -> None:
         """Get PoE1 leagues, update settings and UI."""
@@ -699,110 +789,6 @@ class PoEMarcutGUI(QMainWindow):
             logger.exception("Failed to update poe2leagues from get_poe2_leagues")
         self.populate_league_combo()
         self.populate_league_settings()
-
-    def show_currency_suggestions(self) -> None:
-        """Fetch and display currency suggestions for the selected league + game."""
-        if self.league_combo.currentText() == "" or "[" not in self.league_combo.currentText():
-            return
-        # Parse selection and show a quick loading message
-        league, game_str = self.league_combo.currentText().replace("]", "").split(" [")
-        if game_str == "PoE1":
-            try:
-                self.settings_man.set_setting("currency", "active_game", 1)
-            except Exception:
-                logger.exception("Failed to set active_game")
-        else:
-            try:
-                self.settings_man.set_setting("currency", "active_game", 2)
-            except Exception:
-                logger.exception("Failed to set active_game")
-        try:
-            self.settings_man.set_setting("currency", "active_league", league)
-        except Exception:
-            logger.exception("Failed to set active_league")
-        self.currency_text.setText(f"Loading currency data for {self.league_combo.currentText()}...")
-
-        # Run in background thread so UI stays responsive
-        game = 1 if game_str == "PoE1" else 2
-        thread = threading.Thread(target=self._show_currency_worker, args=(league, game), daemon=True)
-        thread.start()
-
-    def _show_currency_worker(self, league: str, game: int) -> None:
-        """Background worker that fetches currency data and emits signal with formatted lines."""
-        parenthetical = " (aka the current league)" if league in {"tmpstandard", "tmphardcore"} else ""
-        lines: list[str] = []
-        settings_man: settings.SettingsManager = self.settings_man
-
-        # Ensure currency data is available (get_update_time will raise if data missing)
-        try:
-            last_updated = currency.get_update_time(game, league)
-        except (LookupError, ValueError, TypeError) as e:
-            logger.warning("Could not retrieve currency data for %s: %s", league, e)
-            self.currency_data_ready.emit(
-                {
-                    "success": False,
-                    "error": f"Could not retrieve currency data for {league}{parenthetical}. This is expected if the league is not active.",
-                }
-            )
-            return
-
-        time_diff = time.time() - last_updated
-        diff_hours = int(time_diff // 3600)
-        diff_mins = int((time_diff % 3600) // 60)
-        lines.append(
-            f"PoE{game} currency data for {league}{parenthetical} last updated: {diff_hours}h:{diff_mins:02d}m ago ({time.ctime(last_updated)})"
-        )
-        lines.append("Suggested new currency if current price is 1, based on economy data:")
-
-        # Determine the ordered currency list from settings
-        if game == 1:
-            currencies_order = list(getattr(settings_man.settings.currency, "poe1currencies", []) or [])
-        else:
-            currencies_order = list(getattr(settings_man.settings.currency, "poe2currencies", []) or [])
-
-        # If no configured list, fall back to using common currencies
-        if not currencies_order:
-            currencies_order = ["divine", "chaos"] if game == 1 else ["divine", "chaos", "exalted"]
-
-        adj_factor = settings_man.settings.logic.adjustment_factor
-
-        # For each currency in the ordered list, show how much Chaos 1 unit equals and the adjusted Chaos
-        for idx, cur in enumerate(currencies_order):
-            # If there is a next currency, prefer showing the adjusted amount in that currency
-            if idx + 1 < len(currencies_order):
-                next_cur = currencies_order[idx + 1]
-                try:
-                    # Try a direct conversion from cur -> next_cur
-                    rate_to_next = currency.get_exchange_rate(
-                        game=game, league=league, from_currency=cur, to_currency=next_cur
-                    )
-                    adj_in_next = adj_factor * rate_to_next
-                    lines.append(f"{adj_factor}x 1 {cur.capitalize()} ({rate_to_next:.2f} {next_cur.capitalize()})")
-                    lines.append(f" = {int(adj_in_next)} {next_cur.capitalize()} ({adj_in_next:.2f})")
-                except (LookupError, ValueError):
-                    lines.append("Error fetching direct rate to next currency.")
-            else:
-                # No next currency — show adjusted amount in Chaos
-                lines.append(f"{adj_factor}x 1 {cur.capitalize()}")
-                lines.append(" = just vendor it already!")
-
-        self.currency_data_ready.emit({"success": True, "lines": lines})
-
-    def _display_currency_suggestions(self, payload: dict) -> None:
-        """Slot to display currency suggestion lines emitted by the background worker."""
-        if not payload.get("success"):
-            self.currency_text.setText(payload.get("error", "Error fetching currency data."))
-            return
-
-        lines: list[str] = payload.get("lines", [])
-        if not lines:
-            self.currency_text.setText("No data available.")
-            return
-
-        # Show first line as main text, append the rest
-        self.currency_text.setText(lines[0])
-        for line in lines[1:]:
-            self.currency_text.append(line)
 
 
 class KeyOrKeyCodeValidator(QValidator):
