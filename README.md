@@ -63,8 +63,8 @@ Recommend running with `poetry`, eg `poetry run python poemarcut.py`
 4. `.\pipx.exe ensurepath`
 5. `pipx install poetry` to get poetry
 6. Download/clone source from github somewhere
-7. `poetry install` to initialize poetry environment for the folder
-8. `poetry run python poemarcut.py`
+7. `poetry install` in the source folder to initialize poetry environment for the folder
+8. `poetry run python poemarcut_gui.py` (or `poemarcut_cli.py`)
 
 ### Building
 Run `poetry run build`.
