@@ -241,8 +241,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
 
                 actual_adj_factor: float = int(copied_price * adjustment_factor) / copied_price
                 next_cur_type: str | None = None
-                if copied_price == 1 or actual_adj_factor <= min_actual_factor:
-                    # if we know the copied currency type and it's in our list of convertible currencies and it's not the final currency
+                # if we can't go lower, because price is 1 or is low enough tha the discount would be too high
+                if copied_price == 1 or actual_adj_factor < min_actual_factor:
+                    # and if we know the copied currency type and it's in our list of convertible currencies and it's not the final currency
                     if (
                         last_cur_type is not None
                         and last_cur_type in currencies
