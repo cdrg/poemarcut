@@ -28,6 +28,7 @@ def install() -> None:
             "--distpath=" + str(PROJ_ROOT / "dist"),
             "--icon=" + str(PROJ_ROOT / "assets" / "icon.ico"),
             "--add-data=" + str(PROJ_ROOT / "assets" / "icon.ico") + os.pathsep + "assets",
+            "--add-data=" + str(PROJ_ROOT / "assets" / "gear.ico") + os.pathsep + "assets",
             "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-Bold.otf") + os.pathsep + "assets",
             "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-Italic.otf") + os.pathsep + "assets",
             "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-Regular.otf") + os.pathsep + "assets",

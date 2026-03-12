@@ -10,13 +10,12 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from annotated_types import Gt, Lt
-from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
-from PyQt6.QtGui import QDoubleValidator, QFontDatabase, QIcon, QValidator
+from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QCloseEvent, QDoubleValidator, QFontDatabase, QIcon, QValidator
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -69,6 +68,7 @@ except AttributeError:
 # Paths to bundled assets (works both when run normally and when packaged with PyInstaller).
 font_path: Path = _base_path / "assets" / "Fontin-Regular.otf"
 icon_path: Path = _base_path / "assets" / "icon.ico"
+settings_icon_path: Path = _base_path / "assets" / "gear.ico"
 
 
 class PoEMarcutGUI(QMainWindow):
@@ -88,7 +88,7 @@ class PoEMarcutGUI(QMainWindow):
         # Use the shared SettingsManager singleton
         self.settings_manager: settings.SettingsManager = settings.settings_manager
         self.setWindowTitle("PoE Marcut")
-        self.setGeometry(400, 100, 450, 600)
+        self.setGeometry(400, 100, 450, 400)
 
         self.custom_font_family: str = "default"
 
@@ -106,6 +106,7 @@ class PoEMarcutGUI(QMainWindow):
         self.setStyleSheet(
             f"* {{ font-family: {self.custom_font_family}; font-size: 12pt; }} "
             f"QMainWindow {{ color: {poe_header_text_color}; background-color: {poe_dark_bg_color}; }} "
+            f"QWidget#SettingsWindow {{ color: {poe_header_text_color}; background-color: {poe_dark_bg_color}; }}"
             f"QLabel {{ color: {poe_text_color}; }} "
             f"QLineEdit {{ color: {poe_text_color}; background-color: {poe_edit_bg_color}; }} "
             f"QTextEdit {{ color: {poe_header_text_color}; background-color: {poe_light_bg_color}; }} "
@@ -122,7 +123,7 @@ class PoEMarcutGUI(QMainWindow):
         # Signal used to update the UI from a background thread
         self.hotkeys_listener_stopped.connect(self._on_hotkeys_listener_stopped)
 
-    def init_ui(self) -> None:
+    def init_ui(self) -> None:  # noqa: PLR0915
         """Set up the user interface components."""
         central: QWidget = QWidget()
         main_layout: QGridLayout = QGridLayout()
@@ -143,9 +144,12 @@ class PoEMarcutGUI(QMainWindow):
 
         self.league_combo: QComboBox = QComboBox()
         self.populate_league_combo()
+        league_row = QHBoxLayout()
+        league_row.addWidget(self.league_combo)
+        league_row.addStretch()
+        league_layout.addLayout(league_row)
         # Update active game/league when the user selects a league
         self.league_combo.currentIndexChanged.connect(self._on_league_combo_changed)
-        league_layout.addWidget(self.league_combo)
 
         self.currency_lastupdate_label: QLabel = QLabel("")
         self.currency_lastupdate_label.setStyleSheet(f"color: {poe_text_color}; {poe_small_text};")
@@ -155,14 +159,14 @@ class PoEMarcutGUI(QMainWindow):
         self.currency_note_label.setStyleSheet(f"color: {poe_text_color}; {poe_small_text};")
         league_layout.addWidget(self.currency_note_label)
 
-        main_layout.addWidget(league_widget, 1, 0, 2, 1)
+        main_layout.addWidget(league_widget, 1, 0, 2, 2)
 
         self.currency_list: QListWidget = QListWidget()
         main_layout.addWidget(self.currency_list, 3, 0, 1, 3)
         self.populate_currency_list()
 
         self.settings_button: QPushButton = QPushButton("Settings...")
-        self.settings_button.clicked.connect(self.toggle_settings_panel)
+        self.settings_button.clicked.connect(self.toggle_settings_window)
         main_layout.addWidget(self.settings_button, 4, 0, 1, 1)
 
         self.hotkeys_enabled: bool = False  # State for hotkeys button
@@ -179,22 +183,25 @@ class PoEMarcutGUI(QMainWindow):
 
         central.setLayout(main_layout)
         self.setCentralWidget(central)
-
-        self.settings_panel: QFrame = QFrame()
-        self.settings_panel.setStyleSheet(
-            f".QFrame {{ background-color: {poe_light_bg_color}; border: 1px solid {poe_header_text_color}; }}"
-        )
-        self.settings_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        # Install event filter to track window move events for positioning settings window
+        self.installEventFilter(self)
 
         self.setup_settings_sidebar()
 
-        self.settings_panel.setLayout(self.side_settings_layout)
-        self.settings_panel.hide()  # Start hidden
-
-        main_layout.addWidget(self.settings_panel, 1, 2, 4, 1)
+        # Create a separate top-level window for Settings, positioned to the right of the main window
+        self.settings_window: QWidget = QWidget()
+        self.settings_window.setObjectName("SettingsWindow")
+        self.settings_window.setWindowTitle("PoE Marcut Settings")
+        if settings_icon_path.is_file():
+            settings_icon: QIcon = QIcon(str(settings_icon_path))
+            self.settings_window.setWindowIcon(settings_icon)
+        # Use the same main window stylesheet
+        self.settings_window.setStyleSheet(self.styleSheet())
+        self.settings_window.setLayout(self.side_settings_layout)
+        self.settings_window.hide()  # Start hidden
 
     def setup_settings_sidebar(self) -> None:  # noqa: PLR0915
-        """Set up the settings sidebar."""
+        """Build the settings sidebar."""
         settings_man: settings.SettingsManager = self.settings_manager
 
         self.side_settings_layout: QHBoxLayout = QHBoxLayout()
@@ -222,7 +229,7 @@ class PoEMarcutGUI(QMainWindow):
             # update settings when the user finishes editing
             lineedit.editingFinished.connect(partial(self.process_qle_text, "Keys", field_name, lineedit))
             self.key_lineedits[field_name] = lineedit
-            row_layout.addWidget(lineedit, stretch=1)
+            row_layout.addWidget(lineedit)
             lefthalf_layout.addLayout(row_layout)
 
         ## set up components for Logic settings fields
@@ -462,24 +469,6 @@ class PoEMarcutGUI(QMainWindow):
         layout.addWidget(remove_btn)
         return container
 
-    def _make_currency_display_widget(self, currency_name: str, value_text: str | None) -> QWidget:
-        """Create a compact QWidget showing a currency name and a value label beside it.
-
-        `value_text` is expected to already be formatted (e.g. "100.00 chaos").
-        """
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 2, 4, 2)
-        name_lbl = QLabel(currency_name)
-        val_lbl = QLabel(value_text or "")
-        val_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-
-        layout.addWidget(name_lbl)
-        layout.addSpacing(8)
-        layout.addWidget(val_lbl)
-        layout.addStretch()
-        return container
-
     def _remove_list_item(self, list_widget: QListWidget, text: str, category: str, setting: str) -> None:
         """Remove the first matching item with `text` from `list_widget` and save settings."""
         for i in range(list_widget.count()):
@@ -668,12 +657,64 @@ class PoEMarcutGUI(QMainWindow):
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on=False)
         self.show()
 
-    def toggle_settings_panel(self) -> None:
-        """Toggle visibility of the settings panel."""
-        if self.settings_panel.isVisible():
-            self.settings_panel.hide()
-        else:
-            self.settings_panel.show()
+    def toggle_settings_window(self) -> None:
+        """Toggle visibility of the settings window."""
+        # Show/hide the separate top-level settings window and position it
+        try:
+            if self.settings_window.isVisible():
+                self.settings_window.hide()
+            else:
+                # position to the right of the main window using frameGeometry to account for window decorations
+                frame = self.frameGeometry()
+                x = frame.x() + frame.width()
+                y = frame.y()
+                # Size to the layout's minimum hint so the window opens at minimal width
+                self.settings_window.adjustSize()
+                min_w = self.settings_window.minimumSizeHint().width()
+                min_h = self.settings_window.sizeHint().height()
+                self.settings_window.setMinimumWidth(min_w)
+                self.settings_window.resize(min_w, min_h)
+                self.settings_window.move(x, y)
+                self.settings_window.show()
+        except AttributeError:
+            # fallback (shouldn't occur)
+            return
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:  # noqa: N802 - Qt override uses camelCase
+        """Track move events to keep the settings window positioned to the right."""
+        if (
+            a0 is self
+            and a1 is not None
+            and a1.type() == QEvent.Type.Move
+            and getattr(self, "settings_window", None) is not None
+            and self.settings_window.isVisible()
+        ):
+            # Use frameGeometry to include the window frame/title bar
+            frame = self.frameGeometry()
+            x = frame.x() + frame.width() + 8
+            y = frame.y()
+            self.settings_window.move(x, y)
+        return super().eventFilter(a0, a1)
+
+    def closeEvent(self, a0: QCloseEvent | None) -> None:  # noqa: N802 pyqt override uses camelCase
+        """Ensure the settings window is closed and the application exits when main window closes."""
+        try:
+            if getattr(self, "settings_window", None) is not None:
+                # Close the secondary settings window if it's open
+                with contextlib.suppress(Exception):
+                    self.settings_window.close()
+        except Exception:
+            logger.exception("Error while closing settings window during main window shutdown")
+        # Quit the QApplication so the process exits even if other windows were open
+        app = QApplication.instance()
+        if app is not None:
+            try:
+                app.quit()
+            except Exception:
+                logger.exception("Failed to quit QApplication from closeEvent")
+        # Accept the close event to proceed with shutdown (guard if None)
+        if a0 is not None:
+            a0.accept()
 
     def toggle_hotkeys(self) -> None:
         """Enable or disable the keyboard hotkeys listener."""
@@ -750,39 +791,124 @@ class PoEMarcutGUI(QMainWindow):
         except (AttributeError, TypeError, IndexError):
             logger.exception("Failed to set league_combo to active league from settings")
 
-    def populate_currency_list(self) -> None:
+    def _make_currency_display_widget(self, currency_name: str, value_text: str | None) -> QWidget:
+        """Create a compact QWidget showing a currency name and a value label beside it.
+
+        `value_text` is expected to already be formatted (e.g. "100.00 chaos").
+        """
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 0, 4, 0)
+        name_lbl = QLabel(currency_name)
+        val_lbl = QLabel(value_text or "")
+        val_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        layout.addWidget(name_lbl)
+        layout.addWidget(val_lbl)
+        layout.addStretch()
+        return container
+
+    def populate_currency_list(self) -> None:  # noqa: C901, PLR0915
         """Populate the main currency list for the currently active game."""
         currency_settings = self.settings_manager.settings.currency
         currencies = (
             currency_settings.poe1currencies if currency_settings.active_game == 1 else currency_settings.poe2currencies
         )
         self.currency_list.clear()
+        # Add a non-interactive header item at the top of the list
+        header = QListWidgetItem("Configured currency conversions:")
+        header.setFlags(Qt.ItemFlag.NoItemFlags)
+        header.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.currency_list.addItem(header)
         if not currencies:
             return
         game = currency_settings.active_game
         league = currency_settings.active_league
         for idx, c in enumerate(currencies):
             # Compute rate of this currency in terms of the next currency (if any)
+            rate: float | None = None
             rate_text = ""
-            if idx != len(currencies) - 1:
+            lower = currencies[idx + 1] if idx != len(currencies) - 1 else None
+            if lower is not None:
                 try:
-                    rate = currency.get_exchange_rate(game, league, c, currencies[idx + 1])
-                    rate_text = f"({rate:.2f} {currencies[idx + 1]})"
+                    rate = currency.get_exchange_rate(game, league, c, lower)
+                    rate_text = f"({rate:.2f} {lower})"
                 except (LookupError, ValueError, TypeError):
+                    rate = None
                     rate_text = ""
 
-            widget = self._make_currency_display_widget(str(c), rate_text)
+            # For the final currency (no lower), display "(final)" as its value.
+            display_value = rate_text if lower is not None else "(final)"
+            widget = self._make_currency_display_widget(str(c), display_value)
             lw_item = QListWidgetItem()
             lw_item.setSizeHint(widget.sizeHint())
             self.currency_list.addItem(lw_item)
             self.currency_list.setItemWidget(lw_item, widget)
 
-            # Insert a centered, non-interactive downward arrow between currencies
-            if idx != len(currencies) - 1:
-                arrow = QListWidgetItem("↓")
-                arrow.setFlags(Qt.ItemFlag.NoItemFlags)
-                arrow.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
-                self.currency_list.addItem(arrow)
+            # Always insert an arrow row after the currency row (final or not)
+            try:
+                adj: int = int((1 - self.settings_manager.settings.logic.min_actual_factor) * 100)
+            except (AttributeError, TypeError, ValueError):
+                adj = 0
+            arrow_text = "↓"
+            if adj:
+                arrow_text = f"↓ if 1 or discount >{adj}%"
+
+            arrow_widget = QWidget()
+            arrow_layout = QHBoxLayout(arrow_widget)
+            arrow_layout.setContentsMargins(4, 0, 4, 0)
+            arrow_label = QLabel(arrow_text)
+            arrow_label.setStyleSheet(f"color: {poe_header_text_color};")
+            arrow_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            arrow_layout.addWidget(arrow_label)
+            arrow_layout.addStretch()
+            arrow_item = QListWidgetItem()
+            arrow_item.setSizeHint(arrow_widget.sizeHint())
+            arrow_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.currency_list.addItem(arrow_item)
+            self.currency_list.setItemWidget(arrow_item, arrow_widget)
+
+            # For non-final pairs, show the adjusted lower-currency value; for final, show 'vendor it'.
+            if lower is not None and rate is not None:
+                try:
+                    adj_factor = self.settings_manager.settings.logic.adjustment_factor
+                    adj_discount: int = round((1 - float(adj_factor)) * 100)
+                    adj_value = adj_factor * float(rate)
+                    adj_text = f"{int(adj_value)} {lower}"
+                    adj_widget = self._make_currency_display_widget(f"x {adj_discount}% off =", adj_text)
+                    adj_item = QListWidgetItem()
+                    adj_item.setSizeHint(adj_widget.sizeHint())
+                    adj_item.setFlags(Qt.ItemFlag.NoItemFlags)
+                    adj_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+                    self.currency_list.addItem(adj_item)
+                    self.currency_list.setItemWidget(adj_item, adj_widget)
+                except (AttributeError, TypeError, ValueError):
+                    pass
+            else:
+                # Final currency: add a vendor-it adjusted item
+                try:
+                    vendor_widget = self._make_currency_display_widget("=", "vendor it")
+                    vendor_item = QListWidgetItem()
+                    vendor_item.setSizeHint(vendor_widget.sizeHint())
+                    vendor_item.setFlags(Qt.ItemFlag.NoItemFlags)
+                    vendor_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+                    self.currency_list.addItem(vendor_item)
+                    self.currency_list.setItemWidget(vendor_item, vendor_widget)
+                except Exception:
+                    logger.exception("Failed to add vendor item to currency list")
+
+            # Add a small non-interactive vertical spacer after each currency pair group
+            try:
+                spacer_height = 8
+                spacer_widget = QWidget()
+                spacer_widget.setFixedHeight(spacer_height)
+                spacer_item = QListWidgetItem()
+                spacer_item.setSizeHint(QSize(0, spacer_height))
+                spacer_item.setFlags(Qt.ItemFlag.NoItemFlags)
+                self.currency_list.addItem(spacer_item)
+                self.currency_list.setItemWidget(spacer_item, spacer_widget)
+            except Exception:
+                logger.exception("Failed to add spacer after currency group")
 
         # Update the small label showing when the currency data was last updated
         try:
@@ -792,7 +918,33 @@ class PoEMarcutGUI(QMainWindow):
                 self.currency_lastupdate_label.setText("")
 
     def populate_league_settings(self) -> None:
-        """Populate the league settings."""
+        """Refresh league-related widgets after leagues are updated."""
+        try:
+            currency_settings = self.settings_manager.settings.currency
+
+            # Update the PoE1/PoE2 league list widgets without emitting signals
+            with QSignalBlocker(self.p1l_list_widget):
+                items = currency_settings.poe1leagues if isinstance(currency_settings.poe1leagues, (set, list)) else []
+                self._populate_list_widget(self.p1l_list_widget, items, "Currency", "poe1leagues")
+
+            with QSignalBlocker(self.p2l_list_widget):
+                items = currency_settings.poe2leagues if isinstance(currency_settings.poe2leagues, (set, list)) else []
+                self._populate_list_widget(self.p2l_list_widget, items, "Currency", "poe2leagues")
+
+            # Refresh the league combo and select active league without triggering signals
+            with QSignalBlocker(self.league_combo):
+                self.populate_league_combo()
+
+            # Update the read-only displays for active game/league
+            with QSignalBlocker(self.active_game_le):
+                self.active_game_le.setText(str(currency_settings.active_game))
+            with QSignalBlocker(self.active_league_le):
+                self.active_league_le.setText(str(currency_settings.active_league))
+
+            # Refresh main currency list and last-update label
+            self.populate_currency_list()
+        except Exception:
+            logger.exception("Failed to populate league settings")
 
     def _update_currency_update_label(self) -> None:
         """Refresh `self.currency_update_label` with the latest currency mtime."""

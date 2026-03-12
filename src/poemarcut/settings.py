@@ -91,7 +91,8 @@ class CurrencySettings(BaseModel):
         description="The order of PoE2 currencies to price items in",
     )
     assume_highest_currency: bool = Field(
-        default=True, description="True: If actual currency is not available, assume the currency is the highest"
+        default=True,
+        description="True: If actual currency is not available, assume the value being modified is the highest currency",
     )
     active_game: Literal[1, 2] = Field(
         default=1,
