@@ -1,7 +1,9 @@
 """PoEMarcut GUI."""
 
+import contextlib
 import logging
 import sys
+import time
 from collections.abc import Iterable
 from functools import partial
 from logging.handlers import RotatingFileHandler
@@ -33,12 +35,13 @@ from poemarcut import currency, keyboard, settings
 logger = logging.getLogger(__name__)
 
 # PoE-like color scheme
-poe_header_text = "rgb(163, 139, 99)"
-poe_header_style = f"color: {poe_header_text}; font-weight: bold; text-decoration: underline;"
-poe_text = "rgb(170, 170, 170)"
-poe_dark_bg = "rgb(34, 16, 4)"
-poe_light_bg = "rgb(50, 30, 10)"
-poe_edit_bg = "rgb(58, 51, 46)"
+poe_header_text_color = "rgb(163, 139, 99)"
+poe_header_style = f"color: {poe_header_text_color}; font-weight: bold; text-decoration: underline;"
+poe_text_color = "rgb(170, 170, 170)"
+poe_dark_bg_color = "rgb(34, 16, 4)"
+poe_light_bg_color = "rgb(50, 30, 10)"
+poe_edit_bg_color = "rgb(58, 51, 46)"
+poe_small_text = "font-size: 9pt"
 
 # width/height 2x border-radius = a circle
 qradiobutton_light = (
@@ -48,6 +51,12 @@ greenlight = "limegreen"
 redlight = "salmon"
 qradiobutton_greenlight = qradiobutton_light.replace("background-color: black", f"background-color: {greenlight}")
 qradiobutton_redlight = qradiobutton_light.replace("background-color: black", f"background-color: {redlight}")
+
+# Friendly display overrides for special poe.ninja league ids (case-insensitive)
+LEAGUE_DISPLAY_OVERRIDES: dict[str, str] = {
+    "tmpstandard": "Current league",
+    "tmphardcore": "Current hardcore league",
+}
 
 # Determine base path for bundled resources. When run from a PyInstaller
 # onefile bundle, resources are extracted into the runtime folder
@@ -77,7 +86,7 @@ class PoEMarcutGUI(QMainWindow):
         """Initialize the PoEMarcut GUI window and set up the user interface."""
         super().__init__()
         # Use the shared SettingsManager singleton
-        self.settings_man: settings.SettingsManager = settings.settings_manager
+        self.settings_manager: settings.SettingsManager = settings.settings_manager
         self.setWindowTitle("PoE Marcut")
         self.setGeometry(400, 100, 450, 600)
 
@@ -96,16 +105,16 @@ class PoEMarcutGUI(QMainWindow):
 
         self.setStyleSheet(
             f"* {{ font-family: {self.custom_font_family}; font-size: 12pt; }} "
-            f"QMainWindow {{ color: {poe_header_text}; background-color: {poe_dark_bg}; }} "
-            f"QLabel {{ color: {poe_text}; }} "
-            f"QLineEdit {{ color: {poe_text}; background-color: {poe_edit_bg}; }} "
-            f"QTextEdit {{ color: {poe_header_text}; background-color: {poe_light_bg}; }} "
-            f"QCheckBox {{ color: {poe_header_text}; }} "
-            f"QCheckBox::indicator {{ border: 1px solid; border-color: {poe_text}; }} "
-            f"QCheckBox::indicator:checked {{ background-color: {poe_header_text}; }} "
+            f"QMainWindow {{ color: {poe_header_text_color}; background-color: {poe_dark_bg_color}; }} "
+            f"QLabel {{ color: {poe_text_color}; }} "
+            f"QLineEdit {{ color: {poe_text_color}; background-color: {poe_edit_bg_color}; }} "
+            f"QTextEdit {{ color: {poe_header_text_color}; background-color: {poe_light_bg_color}; }} "
+            f"QCheckBox {{ color: {poe_header_text_color}; }} "
+            f"QCheckBox::indicator {{ border: 1px solid; border-color: {poe_text_color}; }} "
+            f"QCheckBox::indicator:checked {{ background-color: {poe_header_text_color}; }} "
             f"QComboBox {{ }} "
-            f"QListWidget {{ color: {poe_header_text}; background-color: {poe_light_bg}; border: 1px solid {poe_header_text}; }} "
-            f"QToolTip {{ color: {poe_text}; background-color: {poe_light_bg}; border: 1px solid {poe_header_text}; }}"
+            f"QListWidget {{ color: {poe_header_text_color}; background-color: {poe_light_bg_color}; border: 1px solid {poe_header_text_color}; }} "
+            f"QToolTip {{ color: {poe_text_color}; background-color: {poe_light_bg_color}; border: 1px solid {poe_header_text_color}; }}"
         )
 
         self.init_ui()
@@ -126,12 +135,27 @@ class PoEMarcutGUI(QMainWindow):
         self.pin_checkbox.stateChanged.connect(self.toggle_always_on_top)
         main_layout.addWidget(self.pin_checkbox, 0, 2, 1, 1)
 
-        main_layout.addWidget(QLabel("Choose league:"), 1, 0, 1, 1)
+        league_widget: QWidget = QWidget()
+        league_layout: QVBoxLayout = QVBoxLayout(league_widget)
+        league_layout.setContentsMargins(0, 0, 0, 0)
+        league_label: QLabel = QLabel("Choose league:")
+        league_layout.addWidget(league_label)
+
         self.league_combo: QComboBox = QComboBox()
         self.populate_league_combo()
         # Update active game/league when the user selects a league
         self.league_combo.currentIndexChanged.connect(self._on_league_combo_changed)
-        main_layout.addWidget(self.league_combo, 2, 0, 1, 1)
+        league_layout.addWidget(self.league_combo)
+
+        self.currency_lastupdate_label: QLabel = QLabel("")
+        self.currency_lastupdate_label.setStyleSheet(f"color: {poe_text_color}; {poe_small_text};")
+        league_layout.addWidget(self.currency_lastupdate_label)
+
+        self.currency_note_label: QLabel = QLabel("GGG only updates currency economy data once per hour.")
+        self.currency_note_label.setStyleSheet(f"color: {poe_text_color}; {poe_small_text};")
+        league_layout.addWidget(self.currency_note_label)
+
+        main_layout.addWidget(league_widget, 1, 0, 2, 1)
 
         self.currency_list: QListWidget = QListWidget()
         main_layout.addWidget(self.currency_list, 3, 0, 1, 3)
@@ -158,7 +182,7 @@ class PoEMarcutGUI(QMainWindow):
 
         self.settings_panel: QFrame = QFrame()
         self.settings_panel.setStyleSheet(
-            f".QFrame {{ background-color: {poe_light_bg}; border: 1px solid {poe_header_text}; }}"
+            f".QFrame {{ background-color: {poe_light_bg_color}; border: 1px solid {poe_header_text_color}; }}"
         )
         self.settings_panel.setFrameShape(QFrame.Shape.StyledPanel)
 
@@ -171,7 +195,7 @@ class PoEMarcutGUI(QMainWindow):
 
     def setup_settings_sidebar(self) -> None:  # noqa: PLR0915
         """Set up the settings sidebar."""
-        settings_man: settings.SettingsManager = self.settings_man
+        settings_man: settings.SettingsManager = self.settings_manager
 
         self.side_settings_layout: QHBoxLayout = QHBoxLayout()
 
@@ -418,8 +442,8 @@ class PoEMarcutGUI(QMainWindow):
 
         # React to external setting changes and update widgets
         try:
-            self.settings_man.settings_changed.connect(self._on_setting_changed)
-        except Exception:
+            self.settings_manager.settings_changed.connect(self._on_setting_changed)
+        except AttributeError:
             logger.exception("Failed to connect settings_changed signal")
 
     def _make_list_item_widget(self, text: str, list_widget: QListWidget, category: str, setting: str) -> QWidget:
@@ -499,7 +523,9 @@ class PoEMarcutGUI(QMainWindow):
     def process_qle_text(self, category: str, setting: str, qle: QLineEdit) -> None:
         """Process input for a specific text setting."""
         try:
-            self.settings_man.set_setting(category, setting, qle.text())
+            settings_obj = self.settings_manager.settings
+            setattr(getattr(settings_obj, category.lower()), setting.lower(), qle.text())
+            self.settings_manager.set_settings(settings_obj)
         except Exception:
             logger.exception("Failed to set text setting %s.%s", category, setting)
 
@@ -507,7 +533,9 @@ class PoEMarcutGUI(QMainWindow):
         """Process input for a specific float setting."""
         try:
             value = float(qle.text())
-            self.settings_man.set_setting(category, setting, value)
+            settings_obj = self.settings_manager.settings
+            setattr(getattr(settings_obj, category.lower()), setting.lower(), value)
+            self.settings_manager.set_settings(settings_obj)
         except ValueError:
             pass  # Invalid float input; ignore
         except Exception:
@@ -516,7 +544,9 @@ class PoEMarcutGUI(QMainWindow):
     def process_qcb(self, category: str, setting: str, checkbox: QCheckBox) -> None:
         """Process input for a specific boolean setting."""
         try:
-            self.settings_man.set_setting(category, setting, checkbox.isChecked())
+            settings_obj = self.settings_manager.settings
+            setattr(getattr(settings_obj, category.lower()), setting.lower(), checkbox.isChecked())
+            self.settings_manager.set_settings(settings_obj)
         except Exception:
             logger.exception("Failed to set checkbox setting %s.%s", category, setting)
 
@@ -542,7 +572,9 @@ class PoEMarcutGUI(QMainWindow):
             if text:
                 items.append(text)
         try:
-            self.settings_man.set_setting(category, setting, items)
+            settings_obj = self.settings_manager.settings
+            setattr(getattr(settings_obj, category.lower()), setting.lower(), items)
+            self.settings_manager.set_settings(settings_obj)
         except Exception:
             logger.exception("Failed to update list setting %s.%s", category, setting)
 
@@ -648,7 +680,7 @@ class PoEMarcutGUI(QMainWindow):
         if not self.hotkeys_enabled:
             try:
                 listener = keyboard.start_listener(blocking=False, on_stop=self._notify_hotkeys_listener_stopped)
-            except Exception:
+            except (RuntimeError, OSError):
                 logger.exception("Failed to start hotkeys listener.")
                 return
 
@@ -660,7 +692,7 @@ class PoEMarcutGUI(QMainWindow):
         else:
             try:
                 keyboard.stop_listener()
-            except Exception:
+            except (RuntimeError, OSError):
                 logger.exception("Failed to stop hotkeys listener.")
             self._set_hotkeys_ui_state(enabled=False)
 
@@ -686,17 +718,26 @@ class PoEMarcutGUI(QMainWindow):
 
     def populate_league_combo(self) -> None:
         """Populate the league combo box."""
-        settings_man: settings.SettingsManager = self.settings_man
+        settings_man: settings.SettingsManager = self.settings_manager
         self.league_combo.clear()
+        # Map displayed item text -> original league id for reverse lookup
+        self._league_display_to_id = {}
         for poe1league in settings_man.settings.currency.poe1leagues:
-            self.league_combo.addItem(f"{poe1league} [PoE1]")
+            display = LEAGUE_DISPLAY_OVERRIDES.get(poe1league.lower(), poe1league)
+            item_text = f"{display} [PoE1]"
+            self.league_combo.addItem(item_text)
+            self._league_display_to_id[item_text] = poe1league
         for poe2league in settings_man.settings.currency.poe2leagues:
-            self.league_combo.addItem(f"{poe2league} [PoE2]")
+            display = LEAGUE_DISPLAY_OVERRIDES.get(poe2league.lower(), poe2league)
+            item_text = f"{display} [PoE2]"
+            self.league_combo.addItem(item_text)
+            self._league_display_to_id[item_text] = poe2league
         # Select the currently active game/league from settings, if present
         try:
             active_game = settings_man.settings.currency.active_game
             active_league = settings_man.settings.currency.active_league
-            desired = f"{active_league} [PoE1]" if active_game == 1 else f"{active_league} [PoE2]"
+            desired_display = LEAGUE_DISPLAY_OVERRIDES.get(active_league.lower(), active_league)
+            desired = f"{desired_display} [PoE1]" if active_game == 1 else f"{desired_display} [PoE2]"
             # Find and set without emitting signals
             idx = -1
             for i in range(self.league_combo.count()):
@@ -711,7 +752,7 @@ class PoEMarcutGUI(QMainWindow):
 
     def populate_currency_list(self) -> None:
         """Populate the main currency list for the currently active game."""
-        currency_settings = self.settings_man.settings.currency
+        currency_settings = self.settings_manager.settings.currency
         currencies = (
             currency_settings.poe1currencies if currency_settings.active_game == 1 else currency_settings.poe2currencies
         )
@@ -743,8 +784,42 @@ class PoEMarcutGUI(QMainWindow):
                 arrow.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
                 self.currency_list.addItem(arrow)
 
+        # Update the small label showing when the currency data was last updated
+        try:
+            self._update_currency_update_label()
+        except (LookupError, TypeError, ValueError):
+            with contextlib.suppress(Exception):
+                self.currency_lastupdate_label.setText("")
+
     def populate_league_settings(self) -> None:
         """Populate the league settings."""
+
+    def _update_currency_update_label(self) -> None:
+        """Refresh `self.currency_update_label` with the latest currency mtime."""
+        currency_settings = self.settings_manager.settings.currency
+        game = currency_settings.active_game
+        league = currency_settings.active_league
+        if not league:
+            self.currency_lastupdate_label.setText("")
+            return
+        try:
+            mtime = currency.get_update_time(game=game, league=league)
+        except (LookupError, TypeError, ValueError):
+            self.currency_lastupdate_label.setText("")
+            return
+
+        now = time.time()
+        delta_seconds = int(max(0, now - float(mtime)))
+        hours = delta_seconds // 3600
+        minutes = (delta_seconds % 3600) // 60
+        delta_str = f"{hours:02d}h:{minutes:02d}m"
+        updated_clock = time.strftime("%I:%M %p", time.localtime(mtime))
+        tz_abbr_raw = time.tzname[1] if time.localtime(mtime).tm_isdst > 0 else time.tzname[0]
+        tz_abbr_filtered = "".join(ch for ch in tz_abbr_raw if "A" <= ch <= "Z")
+        tz_abbr = tz_abbr_filtered or tz_abbr_raw
+        self.currency_lastupdate_label.setText(
+            f"Economy data for {league} last updated {delta_str} ago ({updated_clock} {tz_abbr})"
+        )
 
     def _on_league_combo_changed(self, index: int) -> None:
         """Handle user selection in `league_combo` and persist active game/league.
@@ -755,18 +830,38 @@ class PoEMarcutGUI(QMainWindow):
             text = self.league_combo.currentText() if index is None or index < 0 else self.league_combo.itemText(index)
             if not text:
                 return
+
+            # Determine game from suffix and map display text back to original id
             if text.endswith(" [PoE1]"):
                 game = 1
-                league = text[: -len(" [PoE1]")]
             elif text.endswith(" [PoE2]"):
                 game = 2
-                league = text[: -len(" [PoE2]")]
             else:
                 return
 
-            # Persist the selection
-            self.settings_man.set_setting("currency", "active_game", game)
-            self.settings_man.set_setting("currency", "active_league", league)
+            # Prefer reverse mapping created in populate_league_combo
+            league = getattr(self, "_league_display_to_id", {}).get(text)
+            if league is None:
+                # Fall back to the raw displayed league text (strip suffix)
+                league = text[: -len(" [PoE1]")] if game == 1 else text[: -len(" [PoE2]")]
+
+            # Persist the selection (store original league id).
+            # Set both values inside CurrencySettings.delay_validation to avoid triggering the model validator.
+            settings_obj = self.settings_manager.settings
+            try:
+                with settings_obj.currency.delay_validation():
+                    settings_obj.currency.active_game = game
+                    settings_obj.currency.active_league = league
+                self.settings_manager.set_settings(settings_obj)
+            except (AttributeError, TypeError, ValueError, settings.ValidationError):
+                # Fall back to individual settings if something unexpected fails
+                try:
+                    settings_obj = self.settings_manager.settings
+                    settings_obj.currency.active_game = game
+                    settings_obj.currency.active_league = league
+                    self.settings_manager.set_settings(settings_obj)
+                except (AttributeError, TypeError, ValueError, settings.ValidationError):
+                    logger.exception("Failed to persist active game/league from league_combo selection (fallback)")
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to persist active game/league from league_combo selection")
 
@@ -774,7 +869,9 @@ class PoEMarcutGUI(QMainWindow):
         """Get PoE1 leagues, update settings and UI."""
         leagues: list[str] | None = currency.get_leagues(game=1)
         try:
-            self.settings_man.set_setting("currency", "poe1leagues", leagues)
+            settings_obj = self.settings_manager.settings
+            settings_obj.currency.poe1leagues = set(leagues or [])
+            self.settings_manager.set_settings(settings_obj)
         except Exception:
             logger.exception("Failed to update poe1leagues from get_poe1_leagues")
         self.populate_league_combo()
@@ -784,7 +881,9 @@ class PoEMarcutGUI(QMainWindow):
         """Get PoE2 leagues, update settings and UI."""
         leagues: list[str] | None = currency.get_leagues(game=2)
         try:
-            self.settings_man.set_setting("currency", "poe2leagues", leagues)
+            settings_obj = self.settings_manager.settings
+            settings_obj.currency.poe2leagues = set(leagues or [])
+            self.settings_manager.set_settings(settings_obj)
         except Exception:
             logger.exception("Failed to update poe2leagues from get_poe2_leagues")
         self.populate_league_combo()

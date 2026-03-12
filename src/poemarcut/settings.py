@@ -3,7 +3,10 @@
 Defines default settings and settings file location.
 """
 
+import copy
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -95,6 +98,33 @@ class CurrencySettings(BaseModel):
         description="The active game for currency values. 1 for PoE1, 2 for PoE2.",
     )
     active_league: str = Field(default="tmpstandard", description="The active league to fetch currency values for.")
+
+    @contextmanager
+    def delay_validation(self) -> Generator[None, None, None]:
+        """Context manager that temporarily disables validation during assignment of multiple attributes dependent on each other.
+
+        Yields:
+            None
+
+        Raises:
+            ValidationError: If validation fails when the context manager exits.
+
+        """
+        original_dict = copy.deepcopy(self.__dict__)
+
+        original_validate_assignment = self.model_config.get("validate_assignment", True)
+        self.model_config["validate_assignment"] = False
+        try:
+            yield
+        finally:
+            self.model_config["validate_assignment"] = original_validate_assignment
+
+        try:
+            self.__class__.model_validate(self.__dict__)
+        except:
+            for key, value in original_dict.items():
+                setattr(self, key, value)
+            raise
 
     @model_validator(mode="after")
     def check_value_in_list(self) -> "CurrencySettings":
@@ -190,24 +220,6 @@ class SettingsManager(QObject):
             category_obj = getattr(new_settings, category)
             for field_name in category_obj.__class__.model_fields:
                 self.settings_changed.emit(f"{category}.{field_name}", getattr(category_obj, field_name))
-
-    def set_setting(self, category: str, setting: str, value) -> None:  # noqa: ANN001
-        """Set a specific setting value and save to settings.yaml."""
-        settings = self._load_settings()
-        category = category.lower()
-        setting = setting.lower()
-        if hasattr(settings, category):
-            category_obj = getattr(settings, category)
-            if hasattr(category_obj, setting):
-                setattr(category_obj, setting, value)
-                self.set_settings(settings)
-                self.settings_changed.emit(f"{category}.{setting}", value)
-            else:
-                msg = f"Setting '{setting}' not found in category '{category}'"
-                raise AttributeError(msg)
-        else:
-            msg = f"Category '{category}' not found in settings"
-            raise AttributeError(msg)
 
 
 # Module-level shared SettingsManager instance for easy access by other modules.
