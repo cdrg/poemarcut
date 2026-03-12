@@ -172,11 +172,15 @@ class CurrencySettings(BaseModel):
 
             # Ensure all keys are strings and values are positive ints.
             raw_map: dict[str, int] = {}
+            # Choose per-game valid currency keys
+            valid_keys = (
+                constants.POE1_MERCHANT_CURRENCIES if attr == "poe1currencies" else constants.POE2_MERCHANT_CURRENCIES
+            )
             for k, v in raw.items():
                 # Normalize key to canonical merchant id (lowercase)
                 k_norm = str(k).lower()
-                if k_norm not in constants.MERCHANT_CURRENCIES:
-                    msg = f"{attr} mapping key '{k}' is not a recognized merchant currency short name"
+                if k_norm not in valid_keys:
+                    msg = f"{attr} mapping key '{k}' is not a recognized merchant currency short name for this game"
                     raise ValueError(msg)
                 try:
                     iv = int(v)

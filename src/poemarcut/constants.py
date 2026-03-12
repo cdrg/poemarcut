@@ -7,8 +7,8 @@ S_IN_HOUR = 3600
 BOLD = "\033[1m"  # ANSI escape bold
 RESET = "\033[0m"  # ANSI escape reset
 
-# mapping of merchant tab currency trade id to full name
-MERCHANT_CURRENCIES: dict[str, str] = {
+# mapping of PoE1 merchant tab currency trade id to full name
+POE1_MERCHANT_CURRENCIES: dict[str, str] = {
     "chaos": "Chaos Orb",
     "divine": "Divine Orb",
     "alch": "Orb of Alchemy",
@@ -33,34 +33,90 @@ MERCHANT_CURRENCIES: dict[str, str] = {
     "whetstone": "Blacksmith's Whetstone",
     "gcp": "Gemcutter's Prism",
     "bauble": "Glassblower's Bauble",
-    "offer": "Offering to the Goddess",
+    # "offer": "Offering to the Goddess",  # noqa: ERA001 -- not in the poe.ninja currency response, would need to implement a separate call
 }
 
-# mapping of merchant tab currency trade id to unique minimum full-name prefix for dropdown selection
-MERCHANT_CURRENCY_PREFIXES: dict[str, str] = {
-    "chaos": "chao",
+# mapping of PoE1 merchant tab currency trade id to unique minimum full-name prefix for dropdown selection
+# Note: Longer strings will not work for typing selection. For ~>3, need to use index-based (not yet implemented)
+POE1_MERCHANT_CURRENCY_PREFIXES: dict[str, str] = {
+    "chaos": "cha",
     "divine": "d",
-    "alch": "alc",
+    "alch": "orbofalc",
     "exalted": "e",
-    "alt": "alt",
+    "alt": "orbofalt",
     "mirror": "m",
     "chrome": "chr",
-    "blessed": "bl",
-    "fusing": "f",
+    "blessed": "ble",
+    "fusing": "orboff",
     "jewellers": "j",
-    "regal": "rega",
+    "regal": "r",
     "vaal": "v",
-    "chance": "chan",
-    "annul": "an",
-    "aug": "au",
-    "regret": "regr",
-    "scour": "sco",
-    "transmute": "t",
-    "wisdom": "wi",
+    "chance": "orbofc",
+    "annul": "orbofan",
+    "aug": "orbofau",
+    "regret": "orbofr",
+    "scour": "orbofs",
+    "transmute": "orboft",
+    "wisdom": "s",
     "portal": "p",
-    "scrap": "scr",
-    "whetstone": "wh",
-    "gcp": "g",
-    "bauble": "ba",
-    "offer": "o",
+    "scrap": "a",
+    "whetstone": "bla",
+    "gcp": "ge",
+    "bauble": "gl",
+}
+
+# mapping of PoE2 merchant tab currency trade id to full name
+POE2_MERCHANT_CURRENCIES: dict[str, str] = {
+    "exalted": "Exalted Orb",
+    "greater-exalted-orb": "Greater Exalted Orb",
+    "perfect-exalted-orb": "Perfect Exalted Orb",
+    "divine": "Divine Orb",
+    "chaos": "Chaos Orb",
+    "greater-chaos-orb": "Greater Chaos Orb",
+    "perfect-chaos-orb": "Perfect Chaos Orb",
+    "alch": "Orb of Alchemy",
+    "annul": "Orb of Annulment",
+    "regal": "Regal Orb",
+    "greater-regal-orb": "Greater Regal Orb",
+    "perfect-regal-orb": "Perfect Regal Orb",
+    "transmute": "Orb of Transmutation",
+    "greater-orb-of-transmutation": "Greater Orb of Transmutation",
+    "perfect-orb-of-transmutation": "Perfect Orb of Transmutation",
+    "aug": "Orb of Augmentation",
+    "greater-orb-of-augmentation": "Greater Orb of Augmentation",
+    "perfect-orb-of-augmentation": "Perfect Orb of Augmentation",
+    "chance": "Orb of Chance",
+    "vaal": "Vaal Orb",
+    "artificers": "Artificer's Orb",
+    "fracturing-orb": "Fracturing Orb",
+    "mirror": "Mirror of Kalandra",
+    "wisdom": "Scroll of Wisdom",
+}
+
+# mapping of PoE2 merchant tab currency trade id to unique minimum full-name prefix for dropdown selection
+POE2_MERCHANT_CURRENCY_PREFIXES: dict[str, str] = {
+    "exalted": "e",
+    "greater-exalted-orb": "greatere",
+    "perfect-exalted-orb": "perfecte",
+    "divine": "d",
+    "chaos": "c",
+    "greater-chaos-orb": "greaterc",
+    "perfect-chaos-orb": "perfectc",
+    "alch": "orbofal",
+    "annul": "orbofan",
+    "regal": "r",
+    "greater-regal-orb": "greaterr",
+    "perfect-regal-orb": "perfectr",
+    "transmute": "orboft",
+    "greater-orb-of-transmutation": "greaterorboft",
+    "perfect-orb-of-transmutation": "perfectorboft",
+    "aug": "orbofau",
+    "greater-orb-of-augmentation": "greaterorbofa",
+    "perfect-orb-of-augmentation": "perfectorbofa",
+    "chance": "orbofc",
+    "vaal": "v",
+    "artificers": "a",
+    "fracturing-orb": "f",
+    "mirror": "m",
+    "wisdom": "s",
 }

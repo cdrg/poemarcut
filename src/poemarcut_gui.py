@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -29,7 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from poemarcut import currency, keyboard, settings
+from poemarcut import constants, currency, keyboard, settings
 
 logger = logging.getLogger(__name__)
 
@@ -207,12 +208,12 @@ class PoEMarcutGUI(QMainWindow):
         self.side_settings_layout: QHBoxLayout = QHBoxLayout()
 
         ### left panel of settings
-        lefthalf_layout: QVBoxLayout = QVBoxLayout()
+        leftthird_layout: QVBoxLayout = QVBoxLayout()
         ## set up components for Keys settings fields
         keys_settings: settings.KeySettings = settings_man.settings.keys
         keys_settings_header: QLabel = QLabel("Keys settings")
         keys_settings_header.setStyleSheet(poe_header_style)
-        lefthalf_layout.addWidget(keys_settings_header)
+        leftthird_layout.addWidget(keys_settings_header)
         # loop through all key fields
         # store line edits so we can update them when settings change
         self.key_lineedits: dict[str, QLineEdit] = {}
@@ -230,13 +231,13 @@ class PoEMarcutGUI(QMainWindow):
             lineedit.editingFinished.connect(partial(self.process_qle_text, "Keys", field_name, lineedit))
             self.key_lineedits[field_name] = lineedit
             row_layout.addWidget(lineedit)
-            lefthalf_layout.addLayout(row_layout)
+            leftthird_layout.addLayout(row_layout)
 
         ## set up components for Logic settings fields
         logic_settings: settings.LogicSettings = settings_man.settings.logic
         logic_settings_header: QLabel = QLabel("Logic settings")
         logic_settings_header.setStyleSheet(poe_header_style)
-        lefthalf_layout.addWidget(logic_settings_header)
+        leftthird_layout.addWidget(logic_settings_header)
 
         # adjustment factor field
         af_row_layout: QHBoxLayout = QHBoxLayout()
@@ -262,7 +263,7 @@ class PoEMarcutGUI(QMainWindow):
             partial(self.process_qle_float, "Logic", "adjustment_factor", self.adj_factor_le)
         )
         af_row_layout.addWidget(self.adj_factor_le, stretch=1)
-        lefthalf_layout.addLayout(af_row_layout)
+        leftthird_layout.addLayout(af_row_layout)
 
         # min actual factor field
         maf_row_layout: QHBoxLayout = QHBoxLayout()
@@ -288,7 +289,7 @@ class PoEMarcutGUI(QMainWindow):
             partial(self.process_qle_float, "Logic", "min_actual_factor", self.min_actual_factor_le)
         )
         maf_row_layout.addWidget(self.min_actual_factor_le, stretch=1)
-        lefthalf_layout.addLayout(maf_row_layout)
+        leftthird_layout.addLayout(maf_row_layout)
 
         # enter after calcprice field
         eac_row_layout: QHBoxLayout = QHBoxLayout()
@@ -302,15 +303,40 @@ class PoEMarcutGUI(QMainWindow):
             partial(self.process_qcb, "Logic", "enter_after_calcprice", self.enter_after_cb)
         )
         eac_row_layout.addWidget(self.enter_after_cb, stretch=1)
-        lefthalf_layout.addLayout(eac_row_layout)
+        leftthird_layout.addLayout(eac_row_layout)
 
-        lefthalf_layout.addStretch()
-        self.side_settings_layout.addLayout(lefthalf_layout)
+        leftthird_layout.addStretch()
+
+        currency_settings: settings.CurrencySettings = settings_man.settings.currency
+
+        # active game field
+        ag_row_layout: QHBoxLayout = QHBoxLayout()
+        ag_setting_label: QLabel = QLabel("Active game")
+        ag_field_info = currency_settings.__class__.model_fields["active_game"]
+        ag_setting_label.setToolTip(ag_field_info.description or "")
+        ag_row_layout.addWidget(ag_setting_label, stretch=1)
+        self.active_game_le: QLineEdit = QLineEdit(str(currency_settings.active_game))
+        self.active_game_le.setReadOnly(True)
+        ag_row_layout.addWidget(self.active_game_le, stretch=1)
+        leftthird_layout.addLayout(ag_row_layout)
+
+        # active league field
+        al_row_layout: QHBoxLayout = QHBoxLayout()
+        al_setting_label: QLabel = QLabel("Active league")
+        al_field_info = currency_settings.__class__.model_fields["active_league"]
+        al_setting_label.setToolTip(al_field_info.description or "")
+        al_row_layout.addWidget(al_setting_label, stretch=1)
+        self.active_league_le: QLineEdit = QLineEdit(str(currency_settings.active_league))
+        self.active_league_le.setReadOnly(True)
+        al_row_layout.addWidget(self.active_league_le, stretch=1)
+        leftthird_layout.addLayout(al_row_layout)
+
+        leftthird_layout.addStretch()
+        self.side_settings_layout.addLayout(leftthird_layout)
 
         ### middle panel of settings
         middle_layout: QVBoxLayout = QVBoxLayout()
         ## set up components for Currency settings fields
-        currency_settings: settings.CurrencySettings = settings_man.settings.currency
 
         currency_settings_header: QLabel = QLabel("Currency settings")
         currency_settings_header.setStyleSheet(poe_header_style)
@@ -360,37 +386,26 @@ class PoEMarcutGUI(QMainWindow):
         p2c_list_layout.addWidget(self.p2c_list_widget)
         middle_layout.addLayout(p2c_list_layout)
 
-        # active game field
-        ag_row_layout: QHBoxLayout = QHBoxLayout()
-        ag_setting_label: QLabel = QLabel("Active game")
-        ag_field_info = currency_settings.__class__.model_fields["active_game"]
-        ag_setting_label.setToolTip(ag_field_info.description or "")
-        ag_row_layout.addWidget(ag_setting_label, stretch=1)
-        self.active_game_le: QLineEdit = QLineEdit(str(currency_settings.active_game))
-        self.active_game_le.setReadOnly(True)
-        ag_row_layout.addWidget(self.active_game_le, stretch=1)
-        middle_layout.addLayout(ag_row_layout)
-
-        # active league field
-        al_row_layout: QHBoxLayout = QHBoxLayout()
-        al_setting_label: QLabel = QLabel("Active league")
-        al_field_info = currency_settings.__class__.model_fields["active_league"]
-        al_setting_label.setToolTip(al_field_info.description or "")
-        al_row_layout.addWidget(al_setting_label, stretch=1)
-        self.active_league_le: QLineEdit = QLineEdit(str(currency_settings.active_league))
-        self.active_league_le.setReadOnly(True)
-        al_row_layout.addWidget(self.active_league_le, stretch=1)
-        middle_layout.addLayout(al_row_layout)
+        # poe1 currencies button
+        self.add_poe1_currency_button: QPushButton = QPushButton("Add PoE1 currency")
+        self.add_poe1_currency_button.setToolTip("Add a PoE1 currency to the conversion list")
+        self.add_poe1_currency_button.clicked.connect(self.add_poe1_currency)
+        middle_layout.addWidget(self.add_poe1_currency_button)
+        # poe2 currencies button
+        self.add_poe2_currency_button: QPushButton = QPushButton("Add PoE2 currency")
+        self.add_poe2_currency_button.setToolTip("Add a PoE2 currency to the conversion list")
+        self.add_poe2_currency_button.clicked.connect(self.add_poe2_currency)
+        middle_layout.addWidget(self.add_poe2_currency_button)
 
         middle_layout.addStretch()
         self.side_settings_layout.addLayout(middle_layout)
 
         ### right panel of settings
-        righthalf_layout: QVBoxLayout = QVBoxLayout()
+        rightthird_layout: QVBoxLayout = QVBoxLayout()
 
         blank_header: QLabel = QLabel("Currency settings")
         blank_header.setStyleSheet("color: transparent;")
-        righthalf_layout.addWidget(blank_header)
+        rightthird_layout.addWidget(blank_header)
 
         # autoupdate field
         au_row_layout: QHBoxLayout = QHBoxLayout()
@@ -402,7 +417,7 @@ class PoEMarcutGUI(QMainWindow):
         self.autoupdate_cb.setChecked(currency_settings.autoupdate)
         self.autoupdate_cb.stateChanged.connect(partial(self.process_qcb, "Currency", "autoupdate", self.autoupdate_cb))
         au_row_layout.addWidget(self.autoupdate_cb, stretch=1)
-        righthalf_layout.addLayout(au_row_layout)
+        rightthird_layout.addLayout(au_row_layout)
 
         # poe1leagues field
         p1l_list_layout: QVBoxLayout = QVBoxLayout()
@@ -417,7 +432,7 @@ class PoEMarcutGUI(QMainWindow):
             partial(self.process_qlw, "Currency", "poe1leagues", self.p1l_list_widget)
         )
         p1l_list_layout.addWidget(self.p1l_list_widget)
-        righthalf_layout.addLayout(p1l_list_layout)
+        rightthird_layout.addLayout(p1l_list_layout)
 
         # poe2leagues field
         p2l_list_layout: QVBoxLayout = QVBoxLayout()
@@ -432,20 +447,20 @@ class PoEMarcutGUI(QMainWindow):
             partial(self.process_qlw, "Currency", "poe2leagues", self.p2l_list_widget)
         )
         p2l_list_layout.addWidget(self.p2l_list_widget)
-        righthalf_layout.addLayout(p2l_list_layout)
+        rightthird_layout.addLayout(p2l_list_layout)
 
         # poe1 leagues button
         self.get_poe1_leagues_button: QPushButton = QPushButton("Get PoE1 leagues...")
         self.get_poe1_leagues_button.setToolTip("Replace the PoE1 leagues with the list from GGG")
         self.get_poe1_leagues_button.clicked.connect(self.get_poe1_leagues)
-        righthalf_layout.addWidget(self.get_poe1_leagues_button)
+        rightthird_layout.addWidget(self.get_poe1_leagues_button)
         # poe2 leagues button
         self.get_poe2_leagues_button: QPushButton = QPushButton("Get PoE2 leagues...")
         self.get_poe2_leagues_button.setToolTip("Replace the PoE2 leagues with the list from GGG")
         self.get_poe2_leagues_button.clicked.connect(self.get_poe2_leagues)
-        righthalf_layout.addWidget(self.get_poe2_leagues_button)
+        rightthird_layout.addWidget(self.get_poe2_leagues_button)
 
-        self.side_settings_layout.addLayout(righthalf_layout)
+        self.side_settings_layout.addLayout(rightthird_layout)
 
         # React to external setting changes and update widgets
         try:
@@ -1087,27 +1102,161 @@ class PoEMarcutGUI(QMainWindow):
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to persist active game/league from league_combo selection")
 
-    def get_poe1_leagues(self) -> None:
-        """Get PoE1 leagues, update settings and UI."""
-        leagues: list[str] | None = currency.get_leagues(game=1)
+    def add_poe1_currency(self) -> None:
+        """Add a PoE1 currency from the input box to settings, then update UI list from settings."""
+        self._add_currency(
+            game=1,
+            merchant_map=constants.POE1_MERCHANT_CURRENCIES,
+            setting_field="poe1currencies",
+            list_widget=self.p1c_list_widget,
+            dialog_title="Add PoE1 currency",
+        )
+
+    def add_poe2_currency(self) -> None:
+        """Add a PoE2 currency from the input box to settings, then update UI list from settings."""
+        self._add_currency(
+            game=2,
+            merchant_map=constants.POE2_MERCHANT_CURRENCIES,
+            setting_field="poe2currencies",
+            list_widget=self.p2c_list_widget,
+            dialog_title="Add PoE2 currency",
+        )
+
+    def _add_currency(  # noqa: C901, PLR0912, PLR0915
+        self,
+        *,
+        game: int,
+        merchant_map: dict[str, str],
+        setting_field: str,
+        list_widget: QListWidget,
+        dialog_title: str,
+    ) -> None:
+        """Shared logic for adding a PoE currency.
+
+        - `game`: numeric game id passed to currency.get_exchange_rate
+        - `merchant_map`: mapping of id->display name from `constants`
+        - `setting_field`: field name on `settings_obj.currency` (e.g. 'poe1currencies')
+        - `list_widget`: the QListWidget to refresh after adding
+        - `dialog_title`: title for the input dialog
+        """
         try:
             settings_obj = self.settings_manager.settings
-            settings_obj.currency.poe1leagues = set(leagues or [])
-            self.settings_manager.set_settings(settings_obj)
-        except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
-            logger.exception("Failed to update poe1leagues from get_poe1_leagues")
-        self.populate_league_combo()
-        self.populate_league_settings()
+            currency_settings = settings_obj.currency
+            raw = getattr(currency_settings, setting_field) or {}
+
+            # Show only currencies not already configured
+            valid_keys = [k for k in merchant_map if k not in raw]
+            if not valid_keys:
+                return
+
+            # Display friendly labels but keep a map back to the key
+            display_map: dict[str, str] = {}
+            display_items: list[str] = []
+            for k in valid_keys:
+                label = f"{merchant_map.get(k, k)}"
+                display_items.append(label)
+                display_map[label] = k
+
+            choice, ok = QInputDialog.getItem(
+                self, dialog_title, "Select currency:", display_items, current=0, editable=False
+            )
+            if not ok or not choice:
+                return
+
+            chosen_key = display_map.get(choice)
+            if not chosen_key:
+                return
+
+            # Determine ordering: insert the chosen currency into the existing ordered list
+            # at the position matching its relative value (most valuable -> least valuable).
+            current_order = list(raw.keys())
+            # Remove any existing occurrence so we can re-insert in the right place.
+            if chosen_key in current_order:
+                current_order.remove(chosen_key)
+
+            if not current_order:
+                new_order = [chosen_key]
+            else:
+                inserted = False
+                new_order = []
+                for i, existing in enumerate(current_order):
+                    # If chosen is more valuable than `existing`, insert before it.
+                    try:
+                        rate = currency.get_exchange_rate(game, currency_settings.active_league, chosen_key, existing)
+                        if float(rate) > 1.0:
+                            new_order = [*current_order[:i], chosen_key, *current_order[i:]]
+                            inserted = True
+                            break
+                    except (LookupError, ValueError, TypeError):
+                        # If we can't compare, skip and leave chosen for later insertion
+                        continue
+
+                if not inserted:
+                    # Not more valuable than any existing entry: append to end
+                    new_order = [*current_order, chosen_key]
+
+            # Build mapping: first == 1, subsequent computed from exchange rates
+            mapping: dict[str, int] = {}
+            prev: str | None = None
+            cumulative: float = 1.0
+            for i, name in enumerate(new_order):
+                if i == 0:
+                    mapping[name] = 1
+                    prev = name
+                    cumulative = 1.0
+                    continue
+                if prev is None:
+                    mapping[name] = 1
+                    prev = name
+                    cumulative = 1.0
+                    continue
+                try:
+                    rate = currency.get_exchange_rate(game, currency_settings.active_league, prev, name)
+                    cumulative = cumulative * float(rate)
+                    mapping[name] = round(cumulative)
+                except (LookupError, ValueError, TypeError):
+                    # fallback to existing stored value or 1
+                    try:
+                        mapping[name] = int(raw.get(name, 1))
+                    except (TypeError, ValueError):
+                        mapping[name] = 1
+                prev = name
+
+            try:
+                setattr(settings_obj.currency, setting_field, mapping)
+                self.settings_manager.set_settings(settings_obj)
+            except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
+                logger.exception("Failed to persist added currency %s to %s", chosen_key, setting_field)
+                return
+
+            # Refresh UI list from settings
+            try:
+                with QSignalBlocker(list_widget):
+                    self._populate_list_widget(list_widget, list(mapping.keys()), "Currency", setting_field)
+                self.populate_currency_list()
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                logger.exception("Failed to refresh currency UI for %s after adding %s", setting_field, chosen_key)
+        except (AttributeError, TypeError, ImportError):
+            logger.exception("Failed in _add_currency for %s", setting_field)
+
+    def get_poe1_leagues(self) -> None:
+        """Get PoE1 leagues, update settings, then update UI."""
+        self._update_leagues_and_ui(game=1, setting_attr="poe1leagues")
 
     def get_poe2_leagues(self) -> None:
-        """Get PoE2 leagues, update settings and UI."""
-        leagues: list[str] | None = currency.get_leagues(game=2)
+        """Get PoE2 leagues, update settings, then update UI."""
+        self._update_leagues_and_ui(game=2, setting_attr="poe2leagues")
+
+    def _update_leagues_and_ui(self, *, game: int, setting_attr: str) -> None:
+        """Shared logic for updating leagues from the API and refreshing UI."""
+        leagues: list[str] | None = currency.get_leagues(game=game)
         try:
             settings_obj = self.settings_manager.settings
-            settings_obj.currency.poe2leagues = set(leagues or [])
+            setattr(settings_obj.currency, setting_attr, set(leagues or []))
             self.settings_manager.set_settings(settings_obj)
         except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
-            logger.exception("Failed to update poe2leagues from get_poe2_leagues")
+            logger.exception("Failed to update %s from get_poe%d_leagues", setting_attr, game)
+        # Always refresh UI widgets afterwards
         self.populate_league_combo()
         self.populate_league_settings()
 

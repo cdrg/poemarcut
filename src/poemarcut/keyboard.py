@@ -178,6 +178,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             else settings_man.settings.currency.poe2currencies
         )
         currencies: list[str] = list(raw_currencies.keys())
+        merchant_currency_prefixes = (
+            constants.POE1_MERCHANT_CURRENCY_PREFIXES if game == 1 else constants.POE2_MERCHANT_CURRENCY_PREFIXES
+        )
         copyitem_key = keys["copyitem_key"]
         rightclick_key = keys["rightclick_key"]
         calcprice_key = keys["calcprice_key"]
@@ -310,7 +313,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
 
                     # type the characters of the shortest possible prefix of the full currency name
                     # one by one to move the dropdown selection
-                    prefix = constants.MERCHANT_CURRENCY_PREFIXES[next_cur_type]
+                    prefix = merchant_currency_prefixes[next_cur_type]
                     time.sleep(0.6)  # long delay is needed for the dropdown to be ready for whatever reason
                     pyautogui.write(prefix, interval=0.1)
 
