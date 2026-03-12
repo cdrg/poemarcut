@@ -489,7 +489,7 @@ class PoEMarcutGUI(QMainWindow):
         # Persist the new list to settings
         try:
             self.process_qlw(category, setting, list_widget)
-        except Exception:
+        except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to persist list after removal %s.%s", category, setting)
 
     def _populate_list_widget(
@@ -515,7 +515,7 @@ class PoEMarcutGUI(QMainWindow):
             settings_obj = self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), qle.text())
             self.settings_manager.set_settings(settings_obj)
-        except Exception:
+        except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to set text setting %s.%s", category, setting)
 
     def process_qle_float(self, category: str, setting: str, qle: QLineEdit) -> None:
@@ -527,7 +527,7 @@ class PoEMarcutGUI(QMainWindow):
             self.settings_manager.set_settings(settings_obj)
         except ValueError:
             pass  # Invalid float input; ignore
-        except Exception:
+        except (AttributeError, TypeError, settings.ValidationError):
             logger.exception("Failed to set float setting %s.%s", category, setting)
 
     def process_qcb(self, category: str, setting: str, checkbox: QCheckBox) -> None:
@@ -536,10 +536,10 @@ class PoEMarcutGUI(QMainWindow):
             settings_obj = self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), checkbox.isChecked())
             self.settings_manager.set_settings(settings_obj)
-        except Exception:
+        except (AttributeError, TypeError, settings.ValidationError):
             logger.exception("Failed to set checkbox setting %s.%s", category, setting)
 
-    def process_qlw(self, category: str, setting: str, list_widget: QListWidget, *_: object) -> None:
+    def process_qlw(self, category: str, setting: str, list_widget: QListWidget, *_: object) -> None:  # noqa: C901
         """Process input for a specific list setting.
 
         Accepts extra positional args from Qt signals and ignores them.
@@ -562,9 +562,40 @@ class PoEMarcutGUI(QMainWindow):
                 items.append(text)
         try:
             settings_obj = self.settings_manager.settings
-            setattr(getattr(settings_obj, category.lower()), setting.lower(), items)
+            # If updating currency order lists, convert the ordered list into a dict mapping
+            # currency -> units per highest currency (first currency == 1) using current exchange rates.
+            if category.lower() == "currency" and setting.lower() in ("poe1currencies", "poe2currencies"):
+                game = settings_obj.currency.active_game
+                league = settings_obj.currency.active_league
+                mapping: dict[str, int] = {}
+                prev: str | None = None
+                cumulative: float = 1.0
+                for i, name in enumerate(items):
+                    if i == 0:
+                        mapping[name] = 1
+                        prev = name
+                        cumulative = 1.0
+                        continue
+                    if prev is None:
+                        mapping[name] = 1
+                        prev = name
+                        cumulative = 1.0
+                        continue
+                    try:
+                        rate = currency.get_exchange_rate(game, league, prev, name)
+                        cumulative = cumulative * float(rate)
+                        mapping[name] = round(cumulative)
+                    except (LookupError, ValueError, TypeError):
+                        # Fallback: if we can't fetch a rate, set a conservative 1 unit
+                        mapping[name] = 1
+                        cumulative = cumulative * 1.0
+                    prev = name
+                setattr(getattr(settings_obj, category.lower()), setting.lower(), mapping)
+            else:
+                setattr(getattr(settings_obj, category.lower()), setting.lower(), items)
+
             self.settings_manager.set_settings(settings_obj)
-        except Exception:
+        except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to update list setting %s.%s", category, setting)
 
     def _on_setting_changed(self, full_field: str, value: object) -> None:
@@ -701,16 +732,16 @@ class PoEMarcutGUI(QMainWindow):
         try:
             if getattr(self, "settings_window", None) is not None:
                 # Close the secondary settings window if it's open
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(RuntimeError):
                     self.settings_window.close()
-        except Exception:
+        except (AttributeError, RuntimeError):
             logger.exception("Error while closing settings window during main window shutdown")
         # Quit the QApplication so the process exits even if other windows were open
         app = QApplication.instance()
         if app is not None:
             try:
                 app.quit()
-            except Exception:
+            except (RuntimeError, OSError):
                 logger.exception("Failed to quit QApplication from closeEvent")
         # Accept the close event to proceed with shutdown (guard if None)
         if a0 is not None:
@@ -808,13 +839,52 @@ class PoEMarcutGUI(QMainWindow):
         layout.addStretch()
         return container
 
-    def populate_currency_list(self) -> None:  # noqa: C901, PLR0915
+    def populate_currency_list(self) -> None:  # noqa: C901, PLR0912, PLR0915
         """Populate the main currency list for the currently active game."""
         currency_settings = self.settings_manager.settings.currency
-        currencies = (
+        raw_currencies = (
             currency_settings.poe1currencies if currency_settings.active_game == 1 else currency_settings.poe2currencies
         )
-        self.currency_list.clear()
+        currencies = list(raw_currencies.keys())
+
+        # Refresh stored mapping values from live exchange rates for the active game/league.
+        # Use a guard to avoid recursive re-entry when persisting settings_changed signals fire.
+        self._updating_currency_values = getattr(self, "_updating_currency_values", False)
+        game = currency_settings.active_game
+        league = currency_settings.active_league
+        if currencies and not self._updating_currency_values:
+            highest = currencies[0]
+            updated_map: dict[str, int] = {}
+            for name in currencies:
+                if name == highest:
+                    updated_map[name] = 1
+                    continue
+                try:
+                    rate = currency.get_exchange_rate(game, league, highest, name)
+                    updated_map[name] = round(float(rate))
+                except (LookupError, ValueError, TypeError):
+                    # fallback to existing stored value or 1
+                    try:
+                        updated_map[name] = int(raw_currencies.get(name, 1))
+                    except (TypeError, ValueError):
+                        updated_map[name] = 1
+
+            # Persist only if mapping changed
+            if updated_map != raw_currencies:
+                try:
+                    self._updating_currency_values = True
+                    settings_obj = self.settings_manager.settings
+                    if currency_settings.active_game == 1:
+                        settings_obj.currency.poe1currencies = updated_map
+                    else:
+                        settings_obj.currency.poe2currencies = updated_map
+                    self.settings_manager.set_settings(settings_obj)
+                except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
+                    logger.exception("Failed to persist updated currency mapping from exchange rates")
+                finally:
+                    self._updating_currency_values = False
+
+        self.currency_list.clear()  # clear existing items before repopulating
         # Add a non-interactive header item at the top of the list
         header = QListWidgetItem("Configured currency conversions:")
         header.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -894,7 +964,7 @@ class PoEMarcutGUI(QMainWindow):
                     vendor_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
                     self.currency_list.addItem(vendor_item)
                     self.currency_list.setItemWidget(vendor_item, vendor_widget)
-                except Exception:
+                except (AttributeError, RuntimeError, TypeError, ValueError):
                     logger.exception("Failed to add vendor item to currency list")
 
             # Add a small non-interactive vertical spacer after each currency pair group
@@ -907,7 +977,7 @@ class PoEMarcutGUI(QMainWindow):
                 spacer_item.setFlags(Qt.ItemFlag.NoItemFlags)
                 self.currency_list.addItem(spacer_item)
                 self.currency_list.setItemWidget(spacer_item, spacer_widget)
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError):
                 logger.exception("Failed to add spacer after currency group")
 
         # Update the small label showing when the currency data was last updated
@@ -943,7 +1013,7 @@ class PoEMarcutGUI(QMainWindow):
 
             # Refresh main currency list and last-update label
             self.populate_currency_list()
-        except Exception:
+        except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to populate league settings")
 
     def _update_currency_update_label(self) -> None:
@@ -1024,7 +1094,7 @@ class PoEMarcutGUI(QMainWindow):
             settings_obj = self.settings_manager.settings
             settings_obj.currency.poe1leagues = set(leagues or [])
             self.settings_manager.set_settings(settings_obj)
-        except Exception:
+        except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
             logger.exception("Failed to update poe1leagues from get_poe1_leagues")
         self.populate_league_combo()
         self.populate_league_settings()
@@ -1036,7 +1106,7 @@ class PoEMarcutGUI(QMainWindow):
             settings_obj = self.settings_manager.settings
             settings_obj.currency.poe2leagues = set(leagues or [])
             self.settings_manager.set_settings(settings_obj)
-        except Exception:
+        except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
             logger.exception("Failed to update poe2leagues from get_poe2_leagues")
         self.populate_league_combo()
         self.populate_league_settings()

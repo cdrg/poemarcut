@@ -13,7 +13,7 @@ import pyautogui
 import pyperclip
 from pynput.keyboard import Key, KeyCode, Listener
 
-from poemarcut import currency, settings
+from poemarcut import constants, currency, settings
 
 # pydirectinput uses Windows-only APIs at import-time; import only on Windows
 pydirectinput: Any | None = None
@@ -61,10 +61,8 @@ class KeyboardListenerManager:
         def _on_release(key: Key | KeyCode | None) -> bool:
             should_continue = on_release(key=key)
             if not should_continue and on_stop is not None:
-                try:
-                    on_stop()
-                except Exception:
-                    logger.exception("Exception while running listener stop callback.")
+                # Let on_stop exceptions propagate so they're visible to callers.
+                on_stop()
             return should_continue
 
         listener = Listener(on_release=_on_release)  # type: ignore[arg-type]
@@ -102,7 +100,7 @@ class KeyboardListenerManager:
             listener.stop()
             with contextlib.suppress(RuntimeError):
                 listener.join(timeout=1.0)
-        except Exception:
+        except RuntimeError:
             logger.exception("Exception while stopping listener.")
 
 
@@ -166,7 +164,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             keys: dict[str, Key | KeyCode] = {
                 k: keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
             }
-        except Exception:
+        except ValueError:
             logger.exception("Failed to build keys for hotkeys listener.")
             return False
         adjustment_factor: float = settings_man.settings.logic.adjustment_factor
@@ -174,11 +172,12 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         enter_after_calcprice: bool = settings_man.settings.logic.enter_after_calcprice
         game: int = settings_man.settings.currency.active_game
         league: str = settings_man.settings.currency.active_league
-        currencies: list[str] = (
+        raw_currencies = (
             settings_man.settings.currency.poe1currencies
             if game == 1
             else settings_man.settings.currency.poe2currencies
         )
+        currencies: list[str] = list(raw_currencies.keys())
         copyitem_key = keys["copyitem_key"]
         rightclick_key = keys["rightclick_key"]
         calcprice_key = keys["calcprice_key"]
@@ -311,7 +310,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
 
                     # type the characters of the shortest possible prefix of the full currency name
                     # one by one to move the dropdown selection
-                    prefix = currency.merchant_currency_prefixes[next_cur_type]
+                    prefix = constants.MERCHANT_CURRENCY_PREFIXES[next_cur_type]
                     time.sleep(0.6)  # long delay is needed for the dropdown to be ready for whatever reason
                     pyautogui.write(prefix, interval=0.1)
 

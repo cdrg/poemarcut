@@ -15,6 +15,8 @@ from pydantic_yaml import parse_yaml_file_as, to_yaml_file
 from PyQt6.QtCore import QObject, pyqtSignal
 from yaml import YAMLError
 
+from poemarcut import constants
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,7 +67,7 @@ class LogicSettings(BaseModel):
     )
     enter_after_calcprice: bool = Field(
         default=True,
-        description="True: press 'enter' key after calculating and pasting the new price. False: do not press 'enter' automatically.",
+        description="True: press 'enter' key after calculating and pasting the new price. False: do not press 'enter' automatically",
     )
 
 
@@ -82,13 +84,13 @@ class CurrencySettings(BaseModel):
     poe2leagues: set[str] = Field(
         default_factory=lambda: {"tmpstandard", "tmphardcore"}, description="The available PoE2 trade leagues"
     )
-    poe1currencies: list[str] = Field(  # dict[str, None] = Field(
-        default_factory=lambda: ["divine", "chaos"],
-        description="The order of PoE1 currencies to price items in",
+    poe1currencies: dict[str, int] = Field(
+        default_factory=lambda: {"divine": 1, "chaos": 100},
+        description="List of PoE1 currencies and their values relative to the highest currency",
     )
-    poe2currencies: list[str] = Field(  # dict[str, None] = Field(
-        default_factory=lambda: ["divine", "chaos", "exalted"],
-        description="The order of PoE2 currencies to price items in",
+    poe2currencies: dict[str, int] = Field(
+        default_factory=lambda: {"divine": 1, "chaos": 30, "exalted": 240},
+        description="List of PoE2 currencies and their values relative to the highest currency",
     )
     assume_highest_currency: bool = Field(
         default=True,
@@ -96,9 +98,9 @@ class CurrencySettings(BaseModel):
     )
     active_game: Literal[1, 2] = Field(
         default=1,
-        description="The active game for currency values. 1 for PoE1, 2 for PoE2.",
+        description="The active game for currency values. 1 for PoE1, 2 for PoE2",
     )
-    active_league: str = Field(default="tmpstandard", description="The active league to fetch currency values for.")
+    active_league: str = Field(default="tmpstandard", description="The active league to fetch currency values for")
 
     @contextmanager
     def delay_validation(self) -> Generator[None, None, None]:
@@ -122,13 +124,13 @@ class CurrencySettings(BaseModel):
 
         try:
             self.__class__.model_validate(self.__dict__)
-        except:
+        except Exception:
             for key, value in original_dict.items():
                 setattr(self, key, value)
             raise
 
     @model_validator(mode="after")
-    def check_value_in_list(self) -> "CurrencySettings":
+    def ensure_league_in_game_list(self) -> "CurrencySettings":
         """Validate that active_league is in the appropriate list of leagues based on active_game."""
         poe1 = list(self.poe1leagues or [])
         poe2 = list(self.poe2leagues or [])
@@ -151,6 +153,58 @@ class CurrencySettings(BaseModel):
             msg = f"'{self.active_league}' must be in {poe2}, setting active league to '{poe2[0]}'."
             logger.warning(msg)
             self.active_league = poe2[0]
+        return self
+
+    @model_validator(mode="after")
+    def validate_currency_mappings(self) -> "CurrencySettings":
+        """Validate `poe1currencies` and `poe2currencies` mappings.
+
+        - Requires a dict mapping currency->int units per highest currency.
+        - Orders the dict by numeric value (ascending: most valuable -> least).
+        - Ensures the smallest value is exactly 1; otherwise raises ValueError.
+        """
+        for attr in ("poe1currencies", "poe2currencies"):
+            raw = getattr(self, attr)
+
+            if not isinstance(raw, dict):
+                msg = f"{attr} must be a mapping of currency->int units (dict), got {type(raw).__name__}"
+                raise TypeError(msg)
+
+            # Ensure all keys are strings and values are positive ints.
+            raw_map: dict[str, int] = {}
+            for k, v in raw.items():
+                # Normalize key to canonical merchant id (lowercase)
+                k_norm = str(k).lower()
+                if k_norm not in constants.MERCHANT_CURRENCIES:
+                    msg = f"{attr} mapping key '{k}' is not a recognized merchant currency short name"
+                    raise ValueError(msg)
+                try:
+                    iv = int(v)
+                except (TypeError, ValueError) as _err:
+                    msg = f"{attr} mapping value for '{k}' is not an integer: {v!r}"
+                    raise ValueError(msg) from None
+                if iv <= 0:
+                    msg = f"{attr} mapping value for '{k}' must be a positive integer, got {iv}"
+                    raise ValueError(msg)
+                raw_map[k_norm] = iv
+
+            if not raw_map:
+                setattr(self, attr, {})
+                continue
+
+            # Order by value (ascending: most valuable -> least valuable)
+            ordered_items = sorted(raw_map.items(), key=lambda kv: kv[1])
+
+            # The smallest value must be exactly 1; otherwise refuse and raise.
+            min_val = ordered_items[0][1]
+            if min_val != 1:
+                msg = f"{attr} mapping must have smallest unit == 1, got {min_val}"
+                raise ValueError(msg)
+
+            # Rebuild ordered dict preserving the computed order
+            normalized = {k: int(v) for k, v in ordered_items}
+            setattr(self, attr, normalized)
+
         return self
 
 

@@ -184,7 +184,7 @@ def main() -> int:
     # Ensure singleton-managed listener is stopped/cleaned up (no-op if already stopped)
     try:
         keyboard.stop_listener()
-    except Exception:
+    except (RuntimeError, OSError):
         logging.getLogger(__name__).exception("Error while stopping keyboard listener on exit.")
 
     print("Exiting PoEMarcut...")
