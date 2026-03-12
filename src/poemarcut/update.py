@@ -7,7 +7,8 @@ import requests
 
 from poemarcut import __version__
 
-GITHUB_URL = "https://api.github.com/repos/cdrg/poemarcut/releases/latest"
+GITHUB_RELEASE_URL = "https://github.com/cdrg/poemarcut/releases/latest"
+GITHUB_RELEASES_API_URL = "https://api.github.com/repos/cdrg/poemarcut/releases/latest"
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def get_github_version() -> str | None:
 
     """
     try:
-        response = requests.get(GITHUB_URL, timeout=5)
+        response = requests.get(GITHUB_RELEASES_API_URL, timeout=5)
         response.raise_for_status()
     except requests.RequestException:
         logger.exception("Error fetching current github version number")

@@ -3,6 +3,7 @@
 import contextlib
 import logging
 import sys
+import threading
 import time
 from collections.abc import Iterable
 from functools import partial
@@ -30,7 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from poemarcut import constants, currency, keyboard, settings
+from poemarcut import constants, currency, keyboard, settings, update
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,9 @@ poe_header_style = f"color: {poe_header_text_color}; font-weight: bold; text-dec
 poe_text_color = "rgb(170, 170, 170)"
 poe_dark_bg_color = "rgb(34, 16, 4)"
 poe_light_bg_color = "rgb(50, 30, 10)"
+poe_dropdown_text_color = "rgb(178, 175, 159)"
+poe_dropdown_bg_color = "rgb(48, 48, 48)"
+poe_selection_bg_color = "rgb(124, 124, 124)"
 poe_edit_bg_color = "rgb(58, 51, 46)"
 poe_small_text = "font-size: 9pt"
 
@@ -82,6 +86,9 @@ class PoEMarcutGUI(QMainWindow):
     currency_data_ready = pyqtSignal(object)
     # Emitted when keyboard listener stops itself (e.g. stop_key pressed)
     hotkeys_listener_stopped = pyqtSignal()
+    # Emitted when a GitHub update check completes: (version: str|None)
+    # A non-None version indicates an update is available.
+    github_update_ready = pyqtSignal(object)
 
     def __init__(self) -> None:
         """Initialize the PoEMarcut GUI window and set up the user interface."""
@@ -114,15 +121,24 @@ class PoEMarcutGUI(QMainWindow):
             f"QCheckBox {{ color: {poe_header_text_color}; }} "
             f"QCheckBox::indicator {{ border: 1px solid; border-color: {poe_text_color}; }} "
             f"QCheckBox::indicator:checked {{ background-color: {poe_header_text_color}; }} "
-            f"QComboBox {{ }} "
+            f"QComboBox {{  }} "
+            f"QComboBox QAbstractItemView {{ color: {poe_dropdown_text_color}; background-color: {poe_dropdown_bg_color}; selection-background-color: {poe_selection_bg_color}; }} "
             f"QListWidget {{ color: {poe_header_text_color}; background-color: {poe_light_bg_color}; border: 1px solid {poe_header_text_color}; }} "
             f"QToolTip {{ color: {poe_text_color}; background-color: {poe_light_bg_color}; border: 1px solid {poe_header_text_color}; }}"
+            f"QInputDialog {{ color: {poe_text_color}; background-color: {poe_dark_bg_color}; }} "
         )
 
         self.init_ui()
-
         # Signal used to update the UI from a background thread
         self.hotkeys_listener_stopped.connect(self._on_hotkeys_listener_stopped)
+
+        # Check for GitHub update in background to avoid blocking UI
+        try:
+            # connect signal to slot so updates arrive on the GUI thread
+            self.github_update_ready.connect(self._on_github_update_ready)
+            threading.Thread(target=self._check_github_update, daemon=True).start()
+        except Exception:
+            logger.exception("Failed to start background thread for github update check")
 
     def init_ui(self) -> None:  # noqa: PLR0915
         """Set up the user interface components."""
@@ -132,10 +148,14 @@ class PoEMarcutGUI(QMainWindow):
         self.currency_header: QLabel = QLabel("Currency Information")
         self.currency_header.setStyleSheet(poe_header_style)
         main_layout.addWidget(self.currency_header, 0, 0, 1, 1)
+
         self.pin_checkbox: QCheckBox = QCheckBox("Always on top")
         self.pin_checkbox.setToolTip("Always stay on top of other windows")
         self.pin_checkbox.stateChanged.connect(self.toggle_always_on_top)
         main_layout.addWidget(self.pin_checkbox, 0, 2, 1, 1)
+
+        self.github_update_label: QLabel = QLabel("")
+        main_layout.addWidget(self.github_update_label, 1, 2, 1, 1)
 
         league_widget: QWidget = QWidget()
         league_layout: QVBoxLayout = QVBoxLayout(league_widget)
@@ -1101,6 +1121,39 @@ class PoEMarcutGUI(QMainWindow):
                     logger.exception("Failed to persist active game/league from league_combo selection (fallback)")
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to persist active game/league from league_combo selection")
+
+    def _check_github_update(self) -> None:
+        """Check for update in background and update label if needed."""
+        try:
+            available, _ver = update.is_github_update_available()
+        except Exception:
+            logger.exception("Failed to check github update availability")
+            return
+        # Emit a signal so the GUI thread updates the label safely
+        try:
+            # Emit only the version string (or None). Non-None means update available.
+            self.github_update_ready.emit(_ver if available else None)
+        except Exception:
+            logger.exception("Failed to emit github_update_ready signal")
+
+    def _on_github_update_ready(self, ver: str | None) -> None:
+        """Slot invoked on the GUI thread when github update check completes.
+
+        `ver` is the latest version string if an update is available, or `None` otherwise.
+        """
+        try:
+            if ver is not None:
+                # Make the label an external link to the releases page so clicks open the browser
+                self.github_update_label.setText(f'<a href="{update.GITHUB_RELEASE_URL}">🔔Update {ver} available!</a>')
+                self.github_update_label.setToolTip("Click to open the releases page on GitHub")
+                # Allow QLabel to open external links directly; suppress if attribute missing
+                with contextlib.suppress(Exception):
+                    self.github_update_label.setOpenExternalLinks(True)
+                # Show pointing-hand cursor to indicate clickability; suppress failures
+                with contextlib.suppress(Exception):
+                    self.github_update_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        except (AttributeError, TypeError, RuntimeError, ValueError):
+            logger.exception("Failed to update github_update_label in _on_github_update_ready")
 
     def add_poe1_currency(self) -> None:
         """Add a PoE1 currency from the input box to settings, then update UI list from settings."""
