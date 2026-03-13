@@ -13,12 +13,7 @@ from typing import TYPE_CHECKING
 
 from poemarcut import currency, keyboard, settings, update
 from poemarcut.__init__ import __version__
-from poemarcut.constants import (
-    BOLD,
-    POE2_EX_WORTHLESS_VAL,
-    RESET,
-    S_IN_HOUR,
-)
+from poemarcut.constants import BOLD, RESET, S_IN_HOUR
 
 if TYPE_CHECKING:
     from pynput.keyboard import Key, KeyCode
@@ -115,10 +110,7 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
             f" = {int(chaos_exalt_adj)} Exalted Orb ({chaos_exalt_adj:.2f})",
             end="",
         )
-        if 1 / exalt_div_val > POE2_EX_WORTHLESS_VAL:
-            print("... but you should probably vendor it")
-        else:
-            print()
+        print()
         print(f"{adjustment_factor}x 1 Exalted Orb")
         print(" = Just vendor it already!")
     else:

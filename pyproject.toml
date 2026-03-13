@@ -2,9 +2,7 @@
 name = "poemarcut"
 version = "0.4.0"
 description = "Tool to quickly reprice Path of Exile 1 and 2 merchant tab items by a set percentage"
-authors = [
-    {name = "cdr",email = "58159483+cdrg@users.noreply.github.com"}
-]
+authors = [{ name = "cdr", email = "58159483+cdrg@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 dependencies = [
@@ -17,7 +15,7 @@ dependencies = [
     "pyautogui (>=0.9.54,<0.10.0)",
     "pydantic (>=2.12.5,<3.0.0)",
     "pydantic-yaml (>=1.6.0,<2.0.0)",
-    "pyqt6 (>=6.10.2,<7.0.0)"
+    "pyqt6 (>=6.10.2,<7.0.0)",
 ]
 
 
@@ -29,6 +27,9 @@ build-backend = "poetry.core.masonry.api"
 build = "pyinstaller:install"
 
 [dependency-groups]
-dev = [
-    "pytest (>=9.0.2,<10.0.0)"
-]
+dev = ["pytest (>=9.0.2,<10.0.0)"]
+
+[tool.ruff.lint]
+per-file-ignores = { "tests/*" = [
+    "PLR2004", # ignore "magic numbers" lint warning in tests
+] }

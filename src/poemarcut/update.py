@@ -32,7 +32,7 @@ def version_str_to_tuple(version_str: str) -> tuple:
 
 
 def get_github_version() -> str | None:
-    """Get the version of the latest github release.
+    """Get the version of the latest GitHub release.
 
     Returns:
         str | None: the version string of the latest release, or None on error
@@ -42,12 +42,12 @@ def get_github_version() -> str | None:
         response = requests.get(GITHUB_RELEASES_API_URL, timeout=5)
         response.raise_for_status()
     except requests.RequestException:
-        logger.exception("Error fetching current github version number")
+        logger.exception("Error fetching current GitHub version number")
         return None
     try:
         data = response.json()
     except (ValueError, requests.exceptions.JSONDecodeError):
-        logger.exception("Error: No JSON in response while fetching github version number")
+        logger.exception("Error: No JSON in response while fetching GitHub version number")
         return None
     remote_ver = data.get("tag_name") or data.get("name")
 
@@ -57,12 +57,13 @@ def get_github_version() -> str | None:
 
 
 def is_github_update_available() -> tuple[bool, str | None]:
-    """Check the latest github release for a newer version and return a tuple indicating if an update is available and the latest version.
+    """Check the latest GitHub release for a newer version and return a tuple indicating if an update is available and the latest version.
 
     Returns:
         tuple[bool, str | None]: A tuple where the first element is a boolean indicating if an update is available, and the second element is the latest version string or None if no update is available.
 
     """
+    logger.info("Checking for updates on GitHub...")
     github_version = get_github_version()
     if not github_version:
         return False, None
@@ -71,4 +72,9 @@ def is_github_update_available() -> tuple[bool, str | None]:
     local_vt: tuple = version_str_to_tuple(str(__version__))
 
     # If parsing produced non-empty tuples and remote > local, return True, otherwise False
-    return bool(remote_vt and local_vt and remote_vt > local_vt), github_version
+    update_available = bool(remote_vt and local_vt and remote_vt > local_vt)
+    if update_available:
+        logger.info("GitHub update available: %s", github_version)
+    else:
+        logger.info("No GitHub update available")
+    return update_available, github_version

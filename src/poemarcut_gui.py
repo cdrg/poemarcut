@@ -5,10 +5,11 @@ import logging
 import sys
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from functools import partial
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from types import MappingProxyType
 
 from annotated_types import Gt, Lt
 from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, pyqtSignal
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +36,43 @@ from PyQt6.QtWidgets import (
 from poemarcut import constants, currency, keyboard, settings, update
 
 logger = logging.getLogger(__name__)
+
+
+# QObject that emits the latest log message via a Qt signal.
+class LogSignalEmitter(QObject):
+    """QObject emitter that sends the most recent log message to GUI slots.
+
+    The `last_log` signal emits a single `str` payload containing the
+    formatted log record. Emitting is performed from the logging handler
+    and will be delivered on the Qt event loop thread.
+    """
+
+    last_log = pyqtSignal(str)
+
+
+_log_emitter = LogSignalEmitter()
+
+
+class _LastLogHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:  # pragma: no cover - tiny helper
+        msg = record.getMessage()
+        with contextlib.suppress(Exception):
+            msg = self.format(record)
+        with contextlib.suppress(Exception):
+            _log_emitter.last_log.emit(msg)
+
+
+class _EmojiFormatter(logging.Formatter):
+    # Map level names to custom symbols
+    LEVEL_SYMBOLS = MappingProxyType(
+        {"DEBUG": "🐛", "INFO": "💡", "WARNING": "⚠️", "ERROR": "❌", "EXCEPTION": "💥", "CRITICAL": "🚨"}
+    )
+
+    def format(self, record: logging.LogRecord) -> str:
+        # Swap levelname for symbol
+        record.levelname = self.LEVEL_SYMBOLS.get(record.levelname, record.levelname)
+        return super().format(record)
+
 
 # PoE-like color scheme
 poe_header_text_color = "rgb(163, 139, 99)"
@@ -140,6 +179,8 @@ class PoEMarcutGUI(QMainWindow):
         except Exception:
             logger.exception("Failed to start background thread for github update check")
 
+        logger.info("PoEMarcut initialized")
+
     def init_ui(self) -> None:  # noqa: PLR0915
         """Set up the user interface components."""
         central: QWidget = QWidget()
@@ -186,19 +227,43 @@ class PoEMarcutGUI(QMainWindow):
         main_layout.addWidget(self.currency_list, 3, 0, 1, 3)
         self.populate_currency_list()
 
+        status_layout: QHBoxLayout = QHBoxLayout()
+        self.status_label: QLabel = QLabel("Status:")
+        self.status_label.setStyleSheet(f"{poe_small_text};")
+        status_layout.addWidget(self.status_label)
+        self.log_output_label: QLabel = QLabel("")
+        self.log_output_label.setStyleSheet(f"{poe_small_text};")
+        # Size the log label relative to the main window width so it doesn't grow past the window.
+        self.log_output_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        try:
+            avail = int(self.width() - (self.status_label.sizeHint().width() + 80))
+        except (TypeError, ValueError, AttributeError):
+            avail = 200
+        avail = max(avail, 100)
+        self.log_output_label.setMaximumWidth(avail)
+        status_layout.addWidget(self.log_output_label)
+        status_layout.addStretch()
+        # Connect the global log-emitter signal to update the label in the GUI thread.
+        self._last_log_shown = None
+        try:
+            _log_emitter.last_log.connect(self._on_last_log_message)
+        except Exception:
+            logger.exception("Failed to connect log emitter to GUI slot")
+        main_layout.addLayout(status_layout, 4, 0, 1, 3)
+
         self.settings_button: QPushButton = QPushButton("Settings...")
         self.settings_button.clicked.connect(self.toggle_settings_window)
-        main_layout.addWidget(self.settings_button, 4, 0, 1, 1)
+        main_layout.addWidget(self.settings_button, 5, 0, 1, 1)
 
         self.hotkeys_enabled: bool = False  # State for hotkeys button
 
         self.hotkeys_button: QPushButton = QPushButton("Enable hotkeys")
         self.hotkeys_button.clicked.connect(self.toggle_hotkeys)
-        main_layout.addWidget(self.hotkeys_button, 4, 1, 1, 1)
+        main_layout.addWidget(self.hotkeys_button, 5, 1, 1, 1)
 
         self.indicator = QRadioButton()
         self.indicator.setEnabled(False)  # Disable user interaction
-        main_layout.addWidget(self.indicator, 4, 2, 1, 1)
+        main_layout.addWidget(self.indicator, 5, 2, 1, 1)
 
         self.toggle_hotkeys()  # Enable hotkeys on start
 
@@ -1078,6 +1143,29 @@ class PoEMarcutGUI(QMainWindow):
             f"Economy data for {league} last updated {delta_str} ago ({updated_clock} {tz_abbr})"
         )
 
+    def _on_last_log_message(self, msg: str) -> None:
+        """Slot invoked on the GUI thread when a new log message is emitted.
+
+        Updates `self.log_output_label` if the message changed.
+        """
+        if not msg:
+            return
+        if getattr(self, "_last_log_shown", None) == msg:
+            return
+        try:
+            # Elide long messages to fit the label's maximum width so it doesn't resize the UI.
+            # Ensure we have a non-zero pixel width to elide against.
+            max_w = int(self.log_output_label.maximumWidth() or self.log_output_label.sizeHint().width() or 200)
+            fm = self.log_output_label.fontMetrics()
+            elided = fm.elidedText(msg, Qt.TextElideMode.ElideRight, max_w)
+            self.log_output_label.setText(elided)
+            # Set the full message as a tooltip so users can read it on hover
+            with contextlib.suppress(Exception):
+                self.log_output_label.setToolTip(msg)
+            self._last_log_shown = msg
+        except Exception:
+            logger.exception("Failed to update log_output_label from emitted message")
+
     def _on_league_combo_changed(self, index: int) -> None:
         """Handle user selection in `league_combo` and persist active game/league.
 
@@ -1179,7 +1267,7 @@ class PoEMarcutGUI(QMainWindow):
         self,
         *,
         game: int,
-        merchant_map: dict[str, str],
+        merchant_map: Mapping[str, str],
         setting_field: str,
         list_widget: QListWidget,
         dialog_title: str,
@@ -1302,7 +1390,7 @@ class PoEMarcutGUI(QMainWindow):
 
     def _update_leagues_and_ui(self, *, game: int, setting_attr: str) -> None:
         """Shared logic for updating leagues from the API and refreshing UI."""
-        leagues: list[str] | None = currency.get_leagues(game=game)
+        leagues: set[str] | None = currency.get_leagues(game=game)
         try:
             settings_obj = self.settings_manager.settings
             setattr(settings_obj.currency, setting_attr, set(leagues or []))
@@ -1343,17 +1431,23 @@ class KeyOrKeyCodeValidator(QValidator):
 
 
 if __name__ == "__main__":
+    stream_handler = logging.StreamHandler()  # log to console
+    stream_handler.setLevel(logging.WARNING)
+    file_handler = RotatingFileHandler(
+        "poemarcut_gui.log", mode="a", maxBytes=5 * 1024 * 1024, backupCount=1, encoding="utf-8"
+    )  # log to file with rotation, max size 5MB and 1 backup
+    file_handler.setLevel(logging.WARNING)
+    gui_handler = _LastLogHandler()
+    gui_handler.setLevel(logging.INFO)
+    gui_handler.setFormatter(_EmojiFormatter("%(levelname)s%(message)s"))
+
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(),  # Output to console
-            RotatingFileHandler(
-                "poemarcut_gui.log", mode="a", maxBytes=5 * 1024 * 1024, backupCount=1, encoding="utf-8"
-            ),  # Output to file, max 5 MB
-        ],
+        handlers=[stream_handler, file_handler, gui_handler],
     )
 
+    logger.info("Starting PoEMarcut")
     app = QApplication(sys.argv)
     window = PoEMarcutGUI()
     window.show()

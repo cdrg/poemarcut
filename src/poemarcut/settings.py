@@ -5,7 +5,7 @@ Defines default settings and settings file location.
 
 import copy
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
@@ -102,6 +102,39 @@ class CurrencySettings(BaseModel):
     )
     active_league: str = Field(default="tmpstandard", description="The active league to fetch currency values for")
 
+    @field_validator("poe1leagues", "poe2leagues", mode="before")
+    @classmethod
+    def _coerce_leagues_to_set(cls, v: object | None) -> set[str]:
+        """Coerce league values (often parsed as lists from YAML) into sets.
+
+        This prevents Pydantic serializer warnings when the input value is a
+        list but the model field is declared as `set[str]`.
+        """
+        # Normalize None to empty iterable
+        if v is None:
+            v = []
+
+        result: set[str]
+        # If already a set, return as-is
+        if isinstance(v, set):
+            return v
+        # Handle mapping types by taking keys
+        if isinstance(v, dict):
+            result = set(v.keys())
+        elif isinstance(v, (list, tuple)):
+            result = set(v)
+        elif isinstance(v, str):
+            result = {v}
+        else:
+            # Fallback for other iterable types
+            try:
+                result = set(v) if isinstance(v, Iterable) else set()
+            except (TypeError, ValueError) as exc:
+                logger.debug("Failed to coerce leagues to set: %r (%s)", v, exc)
+                result = set()
+
+        return result
+
     @contextmanager
     def delay_validation(self) -> Generator[None, None, None]:
         """Context manager that temporarily disables validation during assignment of multiple attributes dependent on each other.
@@ -124,7 +157,7 @@ class CurrencySettings(BaseModel):
 
         try:
             self.__class__.model_validate(self.__dict__)
-        except Exception:
+        except (ValidationError, TypeError, ValueError):
             for key, value in original_dict.items():
                 setattr(self, key, value)
             raise

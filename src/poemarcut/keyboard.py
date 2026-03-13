@@ -3,7 +3,6 @@
 import contextlib
 import logging
 import platform
-import re
 import time
 from collections.abc import Callable
 from threading import Lock
@@ -14,6 +13,7 @@ import pyperclip
 from pynput.keyboard import Key, KeyCode, Listener
 
 from poemarcut import constants, currency, settings
+from poemarcut.item import Item
 
 # pydirectinput uses Windows-only APIs at import-time; import only on Windows
 pydirectinput: Any | None = None
@@ -188,13 +188,29 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         stop_key = keys["stop_key"]
 
         if isinstance(key, (Key, KeyCode)) and key == copyitem_key:
+            logger.info("Attempting to extract price and currency type from hovered item.")
             # Send ctrl+alt+c to copy hovered item text to clipboard
             pyautogui.hotkey("ctrl", "alt", "c")
-            price, cur_type = extract_price(pyperclip.paste())
+            item = Item.from_text(pyperclip.paste())
+            if item is not None and item.note is not None:
+                logger.info(
+                    "Extracted price '%s' and currency '%s' from hovered item '%s'.",
+                    item.note.price,
+                    item.note.currency,
+                    item.name,
+                )
+                price, cur_type = item.note.price, item.note.currency
+            else:
+                logger.warning(
+                    "Failed to extract price and currency type from hovered item. Clipboard text was: %s",
+                    pyperclip.paste(),
+                )
+                price, cur_type = None, None
             with _state_lock:
                 _last_price, _last_type = price, cur_type
 
         if isinstance(key, (Key, KeyCode)) and key == rightclick_key:
+            logger.info("Attempting to open price dialog with right click.")
             # Right click to open price dialog
             # prefer to use pydirectinput because pyautogui.rightclick doesn't work properly in the game
             if platform.system() == "Windows" and pydirectinput is not None:
@@ -203,6 +219,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 pyautogui.rightClick()  # this doesn't work on Windows, untested on other platforms
 
         elif isinstance(key, (Key, KeyCode)) and key == calcprice_key:
+            logger.info("Attempting to calculate discounted price and update clipboard and price dialog.")
             # Copy (pre-selected) price to the clipboard
             # use pyautogui because it sends keys faster
             pyautogui.hotkey("ctrl", "c")
@@ -300,14 +317,17 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 # (If text is selected and text cursor is at end of line, pasting will fail.)
                 pyautogui.press("backspace")
 
+                logger.info("Waiting for backspace to complete before pasting new price.")
                 time.sleep(0.35)  # small delay to ensure backspace completes before pasting
 
                 # Paste the new price from clipboard
+                logger.info("Pasting new price '%d' from clipboard.", new_price)
                 pyperclip.copy(str(new_price))
                 pyautogui.hotkey("ctrl", "v")
 
                 # Change currency dropdown if currency was converted
                 if next_cur_type is not None:
+                    logger.info("Attempting to select next currency type '%s' in dropdown.", next_cur_type)
                     # tab to switch focus to currency dropdown
                     pyautogui.press("tab")
 
@@ -334,42 +354,13 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 pyautogui.press("enter")
 
         elif isinstance(key, (Key, KeyCode)) and key == stop_key:
+            logger.info("Stop key pressed, stopping listener.")
             return False
 
     except (OSError, RuntimeError, ValueError, pyautogui.FailSafeException):
         logger.exception("Exception while handling key release event.")
 
     return True
-
-
-def extract_price(item_text: str) -> tuple[int, str] | tuple[None, None]:
-    """Extract currency value and denomination from copied PoE item text.
-
-    The currency value and type are contained in the trade note at the bottom of the item text.
-
-    Args:
-        item_text (str): The full text of the item copied from the game.
-
-    Returns:
-        tuple: (price, currency_type) if found, (None, None) otherwise.
-
-    """
-    # Match patterns like "~b/o 2 divine".
-    # Allow optional spaces, colons, thousands separators (comma or period),
-    # and hyphenated/multi-word currency names (e.g. "orb-of-binding").
-    pattern = r"~\s*(?:b/o|price)\b[:\s]*([\d\.,]+)\s*([A-Za-z0-9]+(?:[-\s][A-Za-z0-9]+)*)"
-    match = re.search(pattern, item_text, flags=re.IGNORECASE)
-    if match:
-        price_str, currency_type = match.groups()
-        # Normalize numeric string by removing commas and spaces.
-        # Treat both commas and periods as thousands separators (decimal values not supported)
-        normalized = price_str.replace(",", "").replace(".", "").replace(" ", "")
-        try:
-            price_val = int(normalized)
-        except ValueError:
-            return None, None
-        return price_val, currency_type.lower().strip()
-    return None, None
 
 
 def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:

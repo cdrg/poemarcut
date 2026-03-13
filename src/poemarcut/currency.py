@@ -69,6 +69,7 @@ def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) ->
 
     data: dict = {}
 
+    logger.info("Fetching currency prices for PoE%s '%s' (update=%s)...", game, league, update)
     # Try cache file first. GGG currency exchange API data updates only hourly, so no need to fetch more often than that.
     try:
         cache_mtime: float = cache_file.stat().st_mtime if cache_file.exists() else 0
@@ -89,7 +90,20 @@ def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) ->
         primary = data.get("core", {}).get("primary")
         if "lines" in data and primary is not None and any(line.get("id") == primary for line in data.get("lines", [])):
             data["mtime"] = cache_mtime
+            logger.info(
+                "Currency prices for PoE%s '%s' retrieved from cache (cache age: %.1f minutes)",
+                game,
+                league,
+                (time.time() - cache_mtime) / 60,
+            )
             return data
+        if update is False:
+            logger.error(
+                "Cache file for PoE%s league '%s' is invalid, but update is disabled. Returning empty data.",
+                game,
+                league,
+            )
+            return {}
 
     # Fetch from API if not fetched from cache file
     response: requests.Response | None = None
@@ -134,10 +148,11 @@ def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) ->
         logger.exception("Error writing to cache file")
 
     data["mtime"] = cache_file.stat().st_mtime if cache_file.exists() else time.time()
+    logger.info("Currency prices for PoE%s league '%s' retrieved from poe.ninja API and cached", game, league)
     return data
 
 
-def get_leagues(game: int) -> list[str] | None:
+def get_leagues(game: int) -> set[str] | None:
     """Get the list of available trade leagues for the specified game.
 
     API response is in the format:
@@ -147,10 +162,10 @@ def get_leagues(game: int) -> list[str] | None:
         game (int): The game version, either 1 (PoE1) or 2 (PoE2).
 
     Returns:
-        list[str]: A list of available trade leagues for the specified game.
+        set[str]: A set of available trade leagues for the specified game.
 
     """
-    # Fetch from API if not fetched from cache file
+    logger.info("Fetching list of leagues for PoE%s from GGG trade API...", game)
     response: requests.Response | None = None
     headers = {"User-Agent": USER_AGENT}
     try:
@@ -184,10 +199,11 @@ def get_leagues(game: int) -> list[str] | None:
         logger.error("Invalid data received from API for PoE%s: %s", game, data)
         return None
 
+    logger.info("Successfully fetched leagues for PoE%s: %s", game, {item.get("id") for item in data.get("result", [])})
     # Only return ids of 'pc' (PoE1)/'poe2' leagues, we are not interested in realm or full text
     if game == 1:
-        return [item.get("id") for item in data.get("result", []) if item.get("realm") == "pc"]
-    return [item.get("id") for item in data.get("result", []) if item.get("realm") == "poe2"]
+        return {item.get("id") for item in data.get("result", []) if item.get("realm") == "pc"}
+    return {item.get("id") for item in data.get("result", []) if item.get("realm") == "poe2"}
 
 
 def get_currency_value(game: int, league: str, currency_name: str) -> tuple[float, str]:
