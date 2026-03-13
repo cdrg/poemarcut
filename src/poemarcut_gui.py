@@ -176,7 +176,7 @@ class PoEMarcutGUI(QMainWindow):
             # connect signal to slot so updates arrive on the GUI thread
             self.github_update_ready.connect(self._on_github_update_ready)
             threading.Thread(target=self._check_github_update, daemon=True).start()
-        except Exception:
+        except (RuntimeError, TypeError):
             logger.exception("Failed to start background thread for github update check")
 
         logger.info("PoEMarcut initialized")
@@ -247,7 +247,7 @@ class PoEMarcutGUI(QMainWindow):
         self._last_log_shown = None
         try:
             _log_emitter.last_log.connect(self._on_last_log_message)
-        except Exception:
+        except (RuntimeError, TypeError):
             logger.exception("Failed to connect log emitter to GUI slot")
         main_layout.addLayout(status_layout, 4, 0, 1, 3)
 
@@ -1163,7 +1163,7 @@ class PoEMarcutGUI(QMainWindow):
             with contextlib.suppress(Exception):
                 self.log_output_label.setToolTip(msg)
             self._last_log_shown = msg
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError):
             logger.exception("Failed to update log_output_label from emitted message")
 
     def _on_league_combo_changed(self, index: int) -> None:
@@ -1214,14 +1214,14 @@ class PoEMarcutGUI(QMainWindow):
         """Check for update in background and update label if needed."""
         try:
             available, _ver = update.is_github_update_available()
-        except Exception:
+        except (OSError, RuntimeError):
             logger.exception("Failed to check github update availability")
             return
         # Emit a signal so the GUI thread updates the label safely
         try:
             # Emit only the version string (or None). Non-None means update available.
             self.github_update_ready.emit(_ver if available else None)
-        except Exception:
+        except (RuntimeError, TypeError):
             logger.exception("Failed to emit github_update_ready signal")
 
     def _on_github_update_ready(self, ver: str | None) -> None:

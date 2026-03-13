@@ -9,14 +9,10 @@ On start, prints a list of suggested new prices for 1-unit currency items based 
 import logging
 import sys
 import time
-from typing import TYPE_CHECKING
 
 from poemarcut import currency, keyboard, settings, update
 from poemarcut.__init__ import __version__
 from poemarcut.constants import BOLD, RESET, S_IN_HOUR
-
-if TYPE_CHECKING:
-    from pynput.keyboard import Key, KeyCode
 
 
 def print_last_updated(game: int, league: str, file_mtime: float) -> None:
@@ -117,10 +113,10 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
         print("Error: Invalid data, could not determine currency suggestions for PoE2.", file=sys.stderr)
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     """Read settings from file, fetch and print currency values, then start keyboard listener."""
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.WARNING,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),  # Output to console
@@ -128,48 +124,68 @@ def main() -> int:
     )
 
     settings_man: settings.SettingsManager = settings.settings_manager
-    keys: dict[str, Key | KeyCode] = {
+    # Parsed binding tuples from keyboard.keyorkeycode_from_str
+    keys: dict[str, tuple[str, object]] = {
         k: keyboard.keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
     }
-    adjustment_factor: float = settings_man.settings.logic.adjustment_factor
-    print("> PoEMarcut running <")
-    print(f'Press "{keys["copyitem_key"]}" or "ctrl+shift+c" with item hovered to copy to clipboard, then... ')
-    print(f'Press "{keys["rightclick_key"]}" or "right-click" with item hovered to open dialog, then... ')
-    print(f'Press "{keys["calcprice_key"]}" to adjust price')
-    if not settings_man.settings.currency.autoupdate:
-        print(f'press "{keys["enter_key"]}" or "enter" to set the new price.')
-    print(f'Press "{keys["stop_key"]}" to exit the program.')
-    print("================================")
 
-    # Fetch and print currency values
-    games: list[int] = [1, 2]
-    for game in games:
-        league = (
-            next(iter(settings_man.settings.currency.poe1leagues))
-            if game == 1
-            else next(iter(settings_man.settings.currency.poe2leagues))
-        )
-        data = currency.store.get_data(game=game, league=league, update=settings_man.settings.currency.autoupdate)
-        print_last_updated(game, league, data.get("mtime", 0))
+    def _binding_to_str(binding: tuple[str, object]) -> str:
+        t, v = binding
+        if t == "special":
+            return str(v)
+        if t == "char":
+            return str(v)
+        if t == "vk":
+            return f"vk:{v}"
+        if t == "scan":
+            return f"scan:{v}"
+        return str(binding)
 
-        # If data object is valid, print suggested currency values for case where current price is 1
-        if game == 1 and "lines" in data and "core" in data and data["core"].get("primary"):
-            print_poe1_currency_suggestions(adjustment_factor, data)
-            print()
-        elif game == 2 and "lines" in data and "core" in data and data["core"].get("primary"):  # noqa: PLR2004
-            print_poe2_currency_suggestions(adjustment_factor, data)
-            print()
-        else:
-            print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
-            print()
-
-    update_available: bool
-    github_version: str | None
-    update_available, github_version = update.is_github_update_available()
-    if update_available and github_version:
+    def _print_instructions() -> None:
+        print("> PoEMarcut running <")
         print(
-            f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
+            f'Press "{_binding_to_str(keys["copyitem_key"])}" or "ctrl+shift+c" with item hovered to copy to clipboard, then... '
         )
+        print(
+            f'Press "{_binding_to_str(keys["rightclick_key"])}" or "right-click" with item hovered to open dialog, then... '
+        )
+        print(f'Press "{_binding_to_str(keys["calcprice_key"])}" to adjust price')
+        if not settings_man.settings.currency.autoupdate:
+            print(f'press "{_binding_to_str(keys["enter_key"])}" or "enter" to set the new price.')
+        print(f'Press "{_binding_to_str(keys["stop_key"])}" to exit the program.')
+        print("================================")
+
+    _print_instructions()
+
+    def _print_currency_suggestions(adjustment_factor: float) -> None:
+        games: list[int] = [1, 2]
+        for game in games:
+            league = (
+                next(iter(settings_man.settings.currency.poe1leagues))
+                if game == 1
+                else next(iter(settings_man.settings.currency.poe2leagues))
+            )
+            data = currency.store.get_data(game=game, league=league, update=settings_man.settings.currency.autoupdate)
+            print_last_updated(game, league, data.get("mtime", 0))
+
+            # If data object is valid, print suggested currency values for case where current price is 1
+            if game == 1 and "lines" in data and "core" in data and data["core"].get("primary"):
+                print_poe1_currency_suggestions(adjustment_factor, data)
+                print()
+            elif game == 2 and "lines" in data and "core" in data and data["core"].get("primary"):  # noqa: PLR2004
+                print_poe2_currency_suggestions(adjustment_factor, data)
+                print()
+            else:
+                print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
+                print()
+
+        update_available, github_version = update.is_github_update_available()
+        if update_available and github_version:
+            print(
+                f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
+            )
+
+    _print_currency_suggestions(settings_man.settings.logic.adjustment_factor)
 
     keyboard.start_listener(blocking=True)
 

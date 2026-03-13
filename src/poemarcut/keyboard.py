@@ -33,6 +33,52 @@ _state_lock = Lock()
 _last_price: int | None = None
 _last_type: str | None = None
 
+# Cache parsed bindings so we don't re-parse on every key event.
+# Parsed binding format: ('special', Key) | ('char', str) | ('vk', int) | ('scan', int)
+_parsed_keys_lock = Lock()
+# Keep caches as mutable dicts so we can update in-place (avoid global rebind).
+_cached_key_strs: dict[str, str] = {}
+_parsed_keys: dict[str, tuple[str, Any]] = {}
+
+
+def _match_char(event_key: Key | KeyCode | None, char: str) -> bool:
+    """Return True if the event_key matches the provided character string."""
+    if not isinstance(event_key, KeyCode):
+        return False
+    if getattr(event_key, "char", None) == char:
+        return True
+    try:
+        return KeyCode.from_char(char) == event_key
+    except ValueError:
+        return False
+
+
+def binding_matches(event_key: Key | KeyCode | None, binding: tuple[str, Any]) -> bool:
+    """Return True if the event key matches the parsed binding tuple.
+
+    Binding tuples have shape `(type_str, value)` where `type_str` is one
+    of: 'special', 'vk', 'scan', 'char'.
+    """
+    if not isinstance(binding, tuple) or len(binding) != 2:  # noqa: PLR2004
+        return False
+
+    binding_type, binding_value = binding
+
+    if binding_type == "special":
+        return event_key == binding_value
+
+    if binding_type == "vk":
+        return getattr(event_key, "vk", None) == binding_value
+
+    if binding_type == "scan":
+        return getattr(event_key, "scan", None) == binding_value
+
+    if binding_type == "char":
+        return _match_char(event_key, binding_value)
+
+    # final fallback
+    return event_key == binding_value
+
 
 class KeyboardListenerManager:
     """Singleton manager that owns the `pynput` Listener and related state.
@@ -80,14 +126,23 @@ class KeyboardListenerManager:
                         self._listener = None
             return None
 
-        listener.start()
-        return listener
+        # Non-blocking: start the listener in a separate thread and return it.
+        try:
+            listener.start()
+        except RuntimeError:
+            logger.exception("Exception while starting listener.")
+            # Ensure we don't keep a reference to a failed listener
+            with self._lock:
+                if self._listener is listener:
+                    self._listener = None
+            return None
+        else:
+            return listener
 
     def stop(self) -> None:
-        """Stop and join the active listener if present.
+        """Stop the currently tracked listener, if any.
 
-        This is safe to call from another thread; the manager will clear
-        its stored listener reference before attempting to stop it.
+        Safe to call from another thread. No-op if there's no active listener.
         """
         with self._lock:
             listener = self._listener
@@ -161,12 +216,23 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
     try:
         settings_man: settings.SettingsManager = settings.settings_manager
         try:
-            keys: dict[str, Key | KeyCode] = {
-                k: keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
-            }
-        except ValueError:
-            logger.exception("Failed to build keys for hotkeys listener.")
-            return False
+            key_strs: dict[str, str] = settings_man.settings.keys.model_dump()
+        except (AttributeError, TypeError, ValueError):
+            logger.exception("Failed to read key strings from settings.")
+            return True
+            return True
+
+        with _parsed_keys_lock:
+            if _cached_key_strs != key_strs:
+                _parsed_keys.clear()
+                for k, v in key_strs.items():
+                    try:
+                        _parsed_keys[k] = keyorkeycode_from_str(v)
+                    except ValueError:
+                        logger.exception("Invalid hotkey binding '%s' for key '%s'; skipping.", v, k)
+                        # skip invalid binding but keep listener running
+                _cached_key_strs.clear()
+                _cached_key_strs.update(key_strs)
         adjustment_factor: float = settings_man.settings.logic.adjustment_factor
         min_actual_factor: float = settings_man.settings.logic.min_actual_factor
         enter_after_calcprice: bool = settings_man.settings.logic.enter_after_calcprice
@@ -181,13 +247,19 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         merchant_currency_prefixes = (
             constants.POE1_MERCHANT_CURRENCY_PREFIXES if game == 1 else constants.POE2_MERCHANT_CURRENCY_PREFIXES
         )
-        copyitem_key = keys["copyitem_key"]
-        rightclick_key = keys["rightclick_key"]
-        calcprice_key = keys["calcprice_key"]
-        enter_key = keys["enter_key"]
-        stop_key = keys["stop_key"]
 
-        if isinstance(key, (Key, KeyCode)) and key == copyitem_key:
+        # Helper to fetch parsed binding safely (may be missing if parsing failed)
+        def _get_binding(name: str) -> tuple[str, Any] | None:
+            with _parsed_keys_lock:
+                return _parsed_keys.get(name)
+
+        copyitem_key = _get_binding("copyitem_key")
+        rightclick_key = _get_binding("rightclick_key")
+        calcprice_key = _get_binding("calcprice_key")
+        enter_key = _get_binding("enter_key")
+        stop_key = _get_binding("stop_key")
+
+        if copyitem_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, copyitem_key):
             logger.info("Attempting to extract price and currency type from hovered item.")
             # Send ctrl+alt+c to copy hovered item text to clipboard
             pyautogui.hotkey("ctrl", "alt", "c")
@@ -209,7 +281,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             with _state_lock:
                 _last_price, _last_type = price, cur_type
 
-        if isinstance(key, (Key, KeyCode)) and key == rightclick_key:
+        if rightclick_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, rightclick_key):
             logger.info("Attempting to open price dialog with right click.")
             # Right click to open price dialog
             # prefer to use pydirectinput because pyautogui.rightclick doesn't work properly in the game
@@ -218,7 +290,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             else:
                 pyautogui.rightClick()  # this doesn't work on Windows, untested on other platforms
 
-        elif isinstance(key, (Key, KeyCode)) and key == calcprice_key:
+        elif calcprice_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, calcprice_key):
             logger.info("Attempting to calculate discounted price and update clipboard and price dialog.")
             # Copy (pre-selected) price to the clipboard
             # use pyautogui because it sends keys faster
@@ -341,22 +413,22 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 with _state_lock:
                     _last_price, _last_type = None, None
 
-        elif isinstance(key, (Key, KeyCode)) and key == enter_key:
+        elif enter_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, enter_key):
             if not enter_after_calcprice:
                 # Press enter to confirm new price
                 pyautogui.press("enter")
 
-        elif isinstance(key, (Key, KeyCode)) and key == stop_key:
+        elif stop_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, stop_key):
             logger.info("Stop key pressed, stopping listener.")
             return False
 
-    except (OSError, RuntimeError, ValueError, pyautogui.FailSafeException):
+    except (OSError, RuntimeError, pyautogui.FailSafeException):
         logger.exception("Exception while handling key release event.")
 
     return True
 
 
-def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
+def keyorkeycode_from_str(key_str: str) -> tuple[str, Any]:
     """Convert a string representation of a key to a pynput Key or KeyCode.
 
     This is unfortunately necessary because pynput does not provide the from_char method for both.
@@ -368,11 +440,26 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
         Key | KeyCode: The corresponding Key or KeyCode object.
 
     """
+    key_str = key_str.strip()
+    # Support vk:<int> and scan:<int> formats for layout-independent bindings
+    if key_str.startswith("vk:"):
+        try:
+            return ("vk", int(key_str.split(":", 1)[1]))
+        except (ValueError, TypeError) as e:
+            msg = f"Invalid vk binding: {key_str}"
+            raise ValueError(msg) from e
+    if key_str.startswith("scan:"):
+        try:
+            return ("scan", int(key_str.split(":", 1)[1]))
+        except (ValueError, TypeError) as e:
+            msg = f"Invalid scan binding: {key_str}"
+            raise ValueError(msg) from e
+
     # Check if it's a special key in the Key enum
     try:
         special_key = getattr(Key, key_str.lower(), None)
         if special_key is not None:
-            return special_key
+            return ("special", special_key)
     except AttributeError as e:
         msg = f"Invalid key string: {key_str}"
         raise ValueError(msg) from e
@@ -381,9 +468,5 @@ def keyorkeycode_from_str(key_str: str) -> Key | KeyCode:
     if len(key_str) != 1:
         msg = f"Invalid key string: {key_str}"
         raise ValueError(msg)
-    try:
-        key_code = KeyCode.from_char(key_str)
-    except ValueError as e:
-        msg = f"Invalid key string: {key_str}"
-        raise ValueError(msg) from e
-    return key_code
+    # store char bindings as ('char', <single-char>)
+    return ("char", key_str)
