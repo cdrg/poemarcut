@@ -4,37 +4,7 @@
 Verifies parsing of various price formats and edge cases.
 """
 
-import sys
-import types
-
 from poemarcut.item import Item
-
-# Inject lightweight dummy modules to avoid importing heavy GUI/OS deps during tests.
-for mod_name in ("pyautogui", "pydirectinput", "pyperclip"):
-    if mod_name not in sys.modules:
-        sys.modules[mod_name] = types.ModuleType(mod_name)
-
-# Provide a minimal `pynput.keyboard` module with required names.
-if "pynput" not in sys.modules:
-    pynput_mod = types.ModuleType("pynput")
-    keyboard_mod = types.ModuleType("pynput.keyboard")
-    keyboard_mod.Key = object  # pyright: ignore[reportAttributeAccessIssue]
-    keyboard_mod.KeyCode = object  # pyright: ignore[reportAttributeAccessIssue]
-    keyboard_mod.Listener = object  # pyright: ignore[reportAttributeAccessIssue]
-    pynput_mod.keyboard = keyboard_mod  # pyright: ignore[reportAttributeAccessIssue]
-    sys.modules["pynput"] = pynput_mod
-    sys.modules["pynput.keyboard"] = keyboard_mod
-
-# Provide minimal stubs for poemarcut submodules to avoid importing external deps
-if "poemarcut.currency" not in sys.modules:
-    currency_mod = types.ModuleType("poemarcut.currency")
-    currency_mod.get_exchange_rate = lambda: 1.0  # pyright: ignore[reportAttributeAccessIssue]
-    sys.modules["poemarcut.currency"] = currency_mod
-if "poemarcut.settings" not in sys.modules:
-    # Provide a SettingsManager minimal stub used during import (not used by extract_price)
-    settings_mod = types.ModuleType("poemarcut.settings")
-    settings_mod.SettingsManager = types.SimpleNamespace  # pyright: ignore[reportAttributeAccessIssue]
-    sys.modules["poemarcut.settings"] = settings_mod
 
 
 def test_extract_price_full_text() -> None:
