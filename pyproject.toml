@@ -30,6 +30,12 @@ build = "pyinstaller:install"
 dev = ["pytest (>=9.0.2,<10.0.0)"]
 
 [tool.ruff.lint]
+# ignore irrelevant lint warnings in tests
 per-file-ignores = { "tests/*" = [
-    "PLR2004", # ignore "magic numbers" lint warning in tests
+    "D100",    # "missing docstring in public module"
+    "D101",    # "missing docstring in public class"
+    "D102",    # "missing docstring in public method"
+    "D103",    # "missing docstring in public function"
+    "PLR2004", # "magic numbers"
+    "S101",    # "assert"
 ] }
