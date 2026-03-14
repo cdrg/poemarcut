@@ -140,7 +140,7 @@ def main() -> int:  # noqa: C901
     settings_man: settings.SettingsManager = settings.settings_manager
     # Parsed binding tuples from keyboard.keyorkeycode_from_str
     keys: dict[str, tuple[str, object]] = {
-        k: keyboard.keyorkeycode_from_str(v) for k, v in settings_man.settings.keys.model_dump().items()
+        k: keyboard.keyorkeycode_from_str(key_str=v) for k, v in settings_man.settings.keys.model_dump().items()
     }
 
     def _binding_to_str(binding: tuple[str, object]) -> str:
@@ -173,15 +173,15 @@ def main() -> int:  # noqa: C901
         """
         print("> PoEMarcut running <")
         print(
-            f'Press "{_binding_to_str(keys["copyitem_key"])}" or "ctrl+shift+c" with item hovered to copy to clipboard, then... '
+            f'Press "{_binding_to_str(binding=keys["copyitem_key"])}" or "ctrl+shift+c" with item hovered to copy to clipboard, then... '
         )
         print(
-            f'Press "{_binding_to_str(keys["rightclick_key"])}" or "right-click" with item hovered to open dialog, then... '
+            f'Press "{_binding_to_str(binding=keys["rightclick_key"])}" or "right-click" with item hovered to open dialog, then... '
         )
-        print(f'Press "{_binding_to_str(keys["calcprice_key"])}" to adjust price')
+        print(f'Press "{_binding_to_str(binding=keys["calcprice_key"])}" to adjust price')
         if not settings_man.settings.currency.autoupdate:
-            print(f'press "{_binding_to_str(keys["enter_key"])}" or "enter" to set the new price.')
-        print(f'Press "{_binding_to_str(keys["stop_key"])}" to exit the program.')
+            print(f'press "{_binding_to_str(binding=keys["enter_key"])}" or "enter" to set the new price.')
+        print(f'Press "{_binding_to_str(binding=keys["stop_key"])}" to exit the program.')
         print("================================")
 
     _print_instructions()
@@ -204,14 +204,14 @@ def main() -> int:  # noqa: C901
                 else next(iter(settings_man.settings.currency.poe2leagues))
             )
             data = currency.store.get_data(game=game, league=league, update=settings_man.settings.currency.autoupdate)
-            print_last_updated(game, league, data.get("mtime", 0))
+            print_last_updated(game=game, league=league, file_mtime=data.get("mtime", 0))
 
             # If data object is valid, print suggested currency values for case where current price is 1
             if game == 1 and "lines" in data and "core" in data and data["core"].get("primary"):
-                print_poe1_currency_suggestions(adjustment_factor, data)
+                print_poe1_currency_suggestions(adjustment_factor=adjustment_factor, data=data)
                 print()
             elif game == 2 and "lines" in data and "core" in data and data["core"].get("primary"):  # noqa: PLR2004
-                print_poe2_currency_suggestions(adjustment_factor, data)
+                print_poe2_currency_suggestions(adjustment_factor=adjustment_factor, data=data)
                 print()
             else:
                 print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
@@ -223,7 +223,7 @@ def main() -> int:  # noqa: C901
                 f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
             )
 
-    _print_currency_suggestions(settings_man.settings.logic.adjustment_factor)
+    _print_currency_suggestions(adjustment_factor=settings_man.settings.logic.adjustment_factor)
 
     keyboard.start_listener(blocking=True)
 

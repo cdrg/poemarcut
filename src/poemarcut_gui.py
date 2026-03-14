@@ -1656,7 +1656,7 @@ class KeyOrKeyCodeValidator(QValidator):
         if not a0:
             return (QValidator.State.Intermediate, "", a1)
         try:
-            keyboard.keyorkeycode_from_str(a0)
+            keyboard.keyorkeycode_from_str(key_str=a0)
         except ValueError:
             return (QValidator.State.Invalid, a0, a1)
         return (QValidator.State.Acceptable, a0, a1)

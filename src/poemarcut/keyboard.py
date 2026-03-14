@@ -262,14 +262,13 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         except (AttributeError, TypeError, ValueError):
             logger.exception("Failed to read key strings from settings.")
             return True
-            return True
 
         with _parsed_keys_lock:
             if _cached_key_strs != key_strs:
                 _parsed_keys.clear()
                 for k, v in key_strs.items():
                     try:
-                        _parsed_keys[k] = keyorkeycode_from_str(v)
+                        _parsed_keys[k] = keyorkeycode_from_str(key_str=v)
                     except ValueError:
                         logger.exception("Invalid hotkey binding '%s' for key '%s'; skipping.", v, k)
                         # skip invalid binding but keep listener running
@@ -310,11 +309,15 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         enter_key = _get_binding("enter_key")
         stop_key = _get_binding("stop_key")
 
-        if copyitem_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, copyitem_key):
+        if (
+            copyitem_key is not None
+            and isinstance(key, (Key, KeyCode))
+            and binding_matches(event_key=key, binding=copyitem_key)
+        ):
             logger.info("Attempting to extract price and currency type from hovered item.")
             # Send ctrl+alt+c to copy hovered item text to clipboard
             pyautogui.hotkey("ctrl", "alt", "c")
-            item = Item.from_text(pyperclip.paste())
+            item = Item.from_text(text=pyperclip.paste())
             if item is not None and item.note is not None:
                 logger.info(
                     "Extracted price '%s' and currency '%s' from hovered item '%s'.",
@@ -332,7 +335,11 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             with _state_lock:
                 _last_price, _last_type = price, cur_type
 
-        if rightclick_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, rightclick_key):
+        if (
+            rightclick_key is not None
+            and isinstance(key, (Key, KeyCode))
+            and binding_matches(event_key=key, binding=rightclick_key)
+        ):
             logger.info("Attempting to open price dialog with right click.")
             # Right click to open price dialog
             # prefer to use pydirectinput because pyautogui.rightclick doesn't work properly in the game
@@ -341,7 +348,11 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             else:
                 pyautogui.rightClick()  # this doesn't work on Windows, untested on other platforms
 
-        elif calcprice_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, calcprice_key):
+        elif (
+            calcprice_key is not None
+            and isinstance(key, (Key, KeyCode))
+            and binding_matches(event_key=key, binding=calcprice_key)
+        ):
             logger.info("Attempting to calculate discounted price and update clipboard and price dialog.")
             # Copy (pre-selected) price to the clipboard
             # use pyautogui because it sends keys faster
@@ -492,12 +503,19 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 with _state_lock:
                     _last_price, _last_type = None, None
 
-        elif enter_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, enter_key):
+        elif (
+            enter_key is not None
+            and isinstance(key, (Key, KeyCode))
+            and binding_matches(event_key=key, binding=enter_key)
+        ):
             if not enter_after_calcprice:
                 # Press enter to confirm new price
                 pyautogui.press("enter")
-
-        elif stop_key is not None and isinstance(key, (Key, KeyCode)) and binding_matches(key, stop_key):
+        elif (
+            stop_key is not None
+            and isinstance(key, (Key, KeyCode))
+            and binding_matches(event_key=key, binding=stop_key)
+        ):
             logger.info("Stop key pressed, stopping listener.")
             return False
 
