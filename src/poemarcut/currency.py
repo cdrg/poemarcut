@@ -2,12 +2,13 @@
 
 import logging
 import time
+from math import ceil
 from pathlib import Path
 
 import requests
 import yaml
 
-from poemarcut import __version__, settings
+from poemarcut import __version__
 from poemarcut.constants import S_IN_HOUR
 
 USER_AGENT = "poemarcut/" + __version__ + " (+https://github.com/cdrg/poemarcut)"
@@ -206,19 +207,20 @@ def get_leagues(game: int) -> set[str] | None:
     return {item.get("id") for item in data.get("result", []) if item.get("realm") == "poe2"}
 
 
-def get_currency_value(game: int, league: str, currency_name: str) -> tuple[float, str]:
+def get_currency_value(game: int, league: str, currency_name: str, *, autoupdate: bool = True) -> tuple[float, str]:
     """Get the value of a specified currency for the specified game and league.
 
     Args:
         game (int): The game, either 1 (PoE1) or 2 (PoE2).
         league (str): The league name to fetch currency prices for.
         currency_name (str): The currency id, detailsId, or name to fetch values for.
+        autoupdate (bool): Whether to fetch new prices from API if cache file is older than one hour.
 
     Returns:
         tuple[float, str]: A tuple containing the primary value and primary currency for the specified currency.
 
     """
-    data = store.get_data(game=game, league=league, update=settings.settings_manager.settings.currency.autoupdate)
+    data = store.get_data(game=game, league=league, update=autoupdate)
     primary_value: float = next(
         (float(cur.get("primaryValue")) for cur in data.get("lines", []) if cur.get("id") == currency_name), 0.0
     )
@@ -229,7 +231,9 @@ def get_currency_value(game: int, league: str, currency_name: str) -> tuple[floa
     return primary_value, primary_currency
 
 
-def get_exchange_rate(game: int, league: str, from_currency: str, to_currency: str) -> float:
+def get_exchange_rate(
+    game: int, league: str, from_currency: str, to_currency: str, *, autoupdate: bool = True
+) -> float:
     """Return the exchange rate from `from_currency` to `to_currency` for the given league.
 
     The rate returned is how many units of `to_currency` equal one unit of `from_currency`.
@@ -245,6 +249,7 @@ def get_exchange_rate(game: int, league: str, from_currency: str, to_currency: s
         league: official league name (matches cache filename).
         from_currency: currency id, detailsId, or name for the source currency.
         to_currency: currency id, detailsId, or name for the target currency.
+        autoupdate: whether to fetch new prices from API if cache file is older than one hour.
 
     Raises:
         ValueError: if currencies are not found or values are invalid.
@@ -253,7 +258,7 @@ def get_exchange_rate(game: int, league: str, from_currency: str, to_currency: s
         float: number of `to_currency` units equal to one `from_currency` unit.
 
     """
-    data = store.get_data(game, league, update=settings.settings_manager.settings.currency.autoupdate)
+    data = store.get_data(game, league, update=autoupdate)
     lines: list[dict] | None = data.get("lines")
     if not lines:
         msg = f"No currency data available for league '{league}'"
@@ -290,12 +295,82 @@ def get_exchange_rate(game: int, league: str, from_currency: str, to_currency: s
     return from_f / to_f
 
 
-def get_update_time(game: int, league: str) -> float:
+def compute_new_order(
+    game: int, league: str, current_order: list[str], chosen_key: str, *, autoupdate: bool = True
+) -> list[str]:
+    """Return a new ordered list with `chosen_key` inserted by relative value.
+
+    Attempts to insert `chosen_key` before the first existing currency that is less
+    valuable (i.e. exchange_rate(chosen_key -> existing) > 1). On compare errors
+    the chosen_key is appended to the end.
+    """
+    # Remove any existing occurrence so we can re-insert in the right place.
+    if chosen_key in current_order:
+        current_order = [k for k in current_order if k != chosen_key]
+
+    if not current_order:
+        return [chosen_key]
+
+    for i, existing in enumerate(current_order):
+        try:
+            rate = get_exchange_rate(game, league, chosen_key, existing, autoupdate=autoupdate)
+            if float(rate) > 1.0:
+                return [*current_order[:i], chosen_key, *current_order[i:]]
+        except (LookupError, ValueError, TypeError):
+            # If we can't compare, skip and try next existing
+            continue
+
+    # Not more valuable than any existing entry: append to end
+    return [*current_order, chosen_key]
+
+
+def compute_mapping_from_order(
+    game: int,
+    league: str,
+    ordered: list[str],
+    existing_raw: dict[str, int] | None = None,
+    *,
+    autoupdate: bool = True,
+) -> dict[str, int]:
+    """Given an ordered list (most valuable -> least) compute mapping currency->units of highest.
+
+    - first item gets 1
+    - subsequent items computed via exchange rates cumulative product, rounded up;
+      falls back to `existing_raw` or 1 on failure
+    """
+    mapping: dict[str, int] = {}
+    prev: str | None = None
+    cumulative = 1.0
+    existing_raw = existing_raw or {}
+
+    for i, name in enumerate(ordered):
+        if i == 0 or prev is None:
+            mapping[name] = 1
+            prev = name
+            cumulative = 1.0
+            continue
+        try:
+            rate = get_exchange_rate(game, league, prev, name, autoupdate=autoupdate)
+            cumulative *= float(rate)
+            mapping[name] = max(1, ceil(cumulative))
+        except (LookupError, ValueError, TypeError):
+            try:
+                mapping[name] = int(existing_raw.get(name, 1))
+            except (TypeError, ValueError):
+                mapping[name] = 1
+        prev = name
+
+    return mapping
+
+
+def get_update_time(game: int, league: str, *, autoupdate: bool = True) -> float:
     """Get the last update time for the currency data of the specified game and league.
 
     Args:
         game (int): The game version, either 1 (PoE1) or 2 (PoE2).
         league (str): The league name.
+        autoupdate (bool): Whether to fetch new prices from API if cache file is older than one hour.
+
 
     Returns:
         float: The last update time as a Unix timestamp (mtime).
@@ -304,7 +379,7 @@ def get_update_time(game: int, league: str) -> float:
         TypeError: If the mtime in the currency data is missing or not a valid number.
 
     """
-    data = store.get_data(game=game, league=league, update=settings.settings_manager.settings.currency.autoupdate)
+    data = store.get_data(game=game, league=league, update=autoupdate)
     mtime = data.get("mtime")
     if not isinstance(mtime, (int, float)):
         msg = f"Invalid or missing mtime in currency data for league '{league}'"

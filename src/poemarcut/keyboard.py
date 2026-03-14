@@ -214,9 +214,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
         return True
 
     try:
-        settings_man: settings.SettingsManager = settings.settings_manager
+        settings_manager: settings.SettingsManager = settings.settings_manager
         try:
-            key_strs: dict[str, str] = settings_man.settings.keys.model_dump()
+            key_strs: dict[str, str] = settings_manager.settings.keys.model_dump()
         except (AttributeError, TypeError, ValueError):
             logger.exception("Failed to read key strings from settings.")
             return True
@@ -233,15 +233,15 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                         # skip invalid binding but keep listener running
                 _cached_key_strs.clear()
                 _cached_key_strs.update(key_strs)
-        adjustment_factor: float = settings_man.settings.logic.adjustment_factor
-        min_actual_factor: float = settings_man.settings.logic.min_actual_factor
-        enter_after_calcprice: bool = settings_man.settings.logic.enter_after_calcprice
-        game: int = settings_man.settings.currency.active_game
-        league: str = settings_man.settings.currency.active_league
+        adjustment_factor: float = settings_manager.settings.logic.adjustment_factor
+        min_actual_factor: float = settings_manager.settings.logic.min_actual_factor
+        enter_after_calcprice: bool = settings_manager.settings.logic.enter_after_calcprice
+        game: int = settings_manager.settings.currency.active_game
+        league: str = settings_manager.settings.currency.active_league
         raw_currencies = (
-            settings_man.settings.currency.poe1currencies
+            settings_manager.settings.currency.poe1currencies
             if game == 1
-            else settings_man.settings.currency.poe2currencies
+            else settings_manager.settings.currency.poe2currencies
         )
         currencies: list[str] = list(raw_currencies.keys())
         merchant_currency_prefixes = (
@@ -326,7 +326,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     return True  # do nothing if current price is less than 1
 
                 # if we don't know the currency type and assume_highest is enabled, assume the currency type is the highest
-                if not last_cur_type and settings_man.settings.currency.assume_highest_currency:
+                if not last_cur_type and settings_manager.settings.currency.assume_highest_currency:
                     last_price = copied_price
                     last_cur_type = currencies[0] if currencies else None
 
@@ -345,7 +345,11 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                         # get_exchange_rate returns a whole number if the more valuable currency is the first argument
                         try:
                             exchange_rate: float = currency.get_exchange_rate(
-                                game=game, league=league, from_currency=last_cur_type, to_currency=next_cur_type
+                                game=game,
+                                league=league,
+                                from_currency=last_cur_type,
+                                to_currency=next_cur_type,
+                                autoupdate=settings_manager.settings.currency.autoupdate,
                             )
                         except LookupError:
                             logger.error(  # noqa: TRY400
@@ -389,13 +393,13 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 time.sleep(0.1)
 
                 # Paste the new price from clipboard
-                logger.info("Pasting new price '%d' from clipboard.", new_price)
+                logger.info("Pasting new price '%d', previous price was '%d'.", new_price, copied_price)
                 pyperclip.copy(str(new_price))
                 pyautogui.hotkey("ctrl", "v")
 
                 # Change currency dropdown if currency was converted
                 if next_cur_type is not None:
-                    logger.info("Attempting to select next currency type '%s' in dropdown.", next_cur_type)
+                    logger.info("Attempting to select next currency '%s' in dropdown.", next_cur_type)
                     # tab to switch focus to currency dropdown
                     pyautogui.press("tab")
 

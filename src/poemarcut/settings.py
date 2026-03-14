@@ -15,7 +15,7 @@ from pydantic_yaml import parse_yaml_file_as, to_yaml_file
 from PyQt6.QtCore import QObject, pyqtSignal
 from yaml import YAMLError
 
-from poemarcut import constants
+from poemarcut import constants, currency
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +312,35 @@ class SettingsManager(QObject):
             category_obj = getattr(new_settings, category)
             for field_name in category_obj.__class__.model_fields:
                 self.settings_changed.emit(f"{category}.{field_name}", getattr(category_obj, field_name))
+
+    def add_currency_and_persist(self, *, game: int, setting_field: str, chosen_key: str) -> None:
+        """Insert `chosen_key` into the appropriate position and persist updated mapping.
+
+        Uses helpers in `poemarcut.currency` to compute ordering and mapping based on
+        live exchange rates (falls back to existing stored values on error).
+        """
+        settings_obj = self.settings
+        currency_settings = settings_obj.currency
+        raw = getattr(currency_settings, setting_field) or {}
+        current_order = list(raw.keys())
+
+        new_order = currency.compute_new_order(
+            game=game,
+            league=currency_settings.active_league,
+            current_order=current_order,
+            chosen_key=chosen_key,
+            autoupdate=currency_settings.autoupdate,
+        )
+        new_mapping = currency.compute_mapping_from_order(
+            game=game,
+            league=currency_settings.active_league,
+            ordered=new_order,
+            existing_raw=raw,
+            autoupdate=currency_settings.autoupdate,
+        )
+
+        setattr(settings_obj.currency, setting_field, new_mapping)
+        self.set_settings(settings_obj)
 
 
 # Module-level shared SettingsManager instance for easy access by other modules.

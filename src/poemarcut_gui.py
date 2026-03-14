@@ -8,7 +8,6 @@ import time
 from collections.abc import Iterable, Mapping
 from functools import partial
 from logging.handlers import RotatingFileHandler
-from math import ceil
 from pathlib import Path
 from types import MappingProxyType
 
@@ -661,7 +660,7 @@ class PoEMarcutGUI(QMainWindow):
         except (AttributeError, TypeError, settings.ValidationError):
             logger.exception("Failed to set checkbox setting %s.%s", category, setting)
 
-    def process_qlw(self, category: str, setting: str, list_widget: QListWidget, *_: object) -> None:  # noqa: C901
+    def process_qlw(self, category: str, setting: str, list_widget: QListWidget, *_: object) -> None:
         """Process input for a specific list setting.
 
         Accepts extra positional args from Qt signals and ignores them.
@@ -684,34 +683,18 @@ class PoEMarcutGUI(QMainWindow):
                 items.append(text)
         try:
             settings_obj = self.settings_manager.settings
-            # If updating currency order lists, convert the ordered list into a dict mapping
-            # currency -> units per highest currency (first currency == 1) using current exchange rates.
+            # If updating currency order lists, delegate conversion to settings/currency helpers
             if category.lower() == "currency" and setting.lower() in ("poe1currencies", "poe2currencies"):
                 game = settings_obj.currency.active_game
                 league = settings_obj.currency.active_league
-                mapping: dict[str, int] = {}
-                prev: str | None = None
-                cumulative: float = 1.0
-                for i, name in enumerate(items):
-                    if i == 0:
-                        mapping[name] = 1
-                        prev = name
-                        cumulative = 1.0
-                        continue
-                    if prev is None:
-                        mapping[name] = 1
-                        prev = name
-                        cumulative = 1.0
-                        continue
-                    try:
-                        rate = currency.get_exchange_rate(game, league, prev, name)
-                        cumulative = cumulative * float(rate)
-                        mapping[name] = max(1, ceil(cumulative))
-                    except (LookupError, ValueError, TypeError):
-                        # Fallback: if we can't fetch a rate, set a conservative 1 unit
-                        mapping[name] = 1
-                        cumulative = cumulative * 1.0
-                    prev = name
+                raw = getattr(settings_obj.currency, setting.lower()) or {}
+                try:
+                    mapping = currency.compute_mapping_from_order(
+                        game, league, items, existing_raw=raw, autoupdate=settings_obj.currency.autoupdate
+                    )
+                except (LookupError, ValueError, TypeError):
+                    # Fallback to a conservative mapping (1 for each) if helper fails
+                    mapping = dict.fromkeys(items, 1)
                 setattr(getattr(settings_obj, category.lower()), setting.lower(), mapping)
             else:
                 setattr(getattr(settings_obj, category.lower()), setting.lower(), items)
@@ -975,17 +958,14 @@ class PoEMarcutGUI(QMainWindow):
         game = currency_settings.active_game
         league = currency_settings.active_league
         if currencies and not self._updating_currency_values:
-            highest = currencies[0]
-            updated_map: dict[str, int] = {}
-            for name in currencies:
-                if name == highest:
-                    updated_map[name] = 1
-                    continue
-                try:
-                    rate = currency.get_exchange_rate(game, league, highest, name)
-                    updated_map[name] = max(1, ceil(float(rate)))
-                except (LookupError, ValueError, TypeError):
-                    # fallback to existing stored value or 1
+            try:
+                updated_map: dict[str, int] = currency.compute_mapping_from_order(
+                    game, league, currencies, existing_raw=raw_currencies, autoupdate=currency_settings.autoupdate
+                )
+            except (LookupError, ValueError, TypeError):
+                # Fallback: preserve existing stored values where possible, else conservative 1
+                updated_map = {}
+                for name in currencies:
                     try:
                         updated_map[name] = int(raw_currencies.get(name, 1))
                     except (TypeError, ValueError):
@@ -1023,7 +1003,7 @@ class PoEMarcutGUI(QMainWindow):
             lower = currencies[idx + 1] if idx != len(currencies) - 1 else None
             if lower is not None:
                 try:
-                    rate = currency.get_exchange_rate(game, league, c, lower)
+                    rate = currency.get_exchange_rate(game, league, c, lower, autoupdate=currency_settings.autoupdate)
                     rate_text = f"({rate:.2f} {lower})"
                 except (LookupError, ValueError, TypeError):
                     rate = None
@@ -1066,7 +1046,7 @@ class PoEMarcutGUI(QMainWindow):
                     adj_factor = self.settings_manager.settings.logic.adjustment_factor
                     adj_discount: int = round((1 - float(adj_factor)) * 100)
                     adj_value = adj_factor * float(rate)
-                    adj_text = f"{ceil(adj_value)} {lower}"
+                    adj_text = f"{int(adj_value)} {lower}" if adj_value >= 1 else f"1 {lower}"
                     adj_widget = self._make_currency_display_widget(f"x {adj_discount}% off =", adj_text)
                     adj_item = QListWidgetItem()
                     adj_item.setSizeHint(adj_widget.sizeHint())
@@ -1147,7 +1127,7 @@ class PoEMarcutGUI(QMainWindow):
             self.currency_lastupdate_label.setText("")
             return
         try:
-            mtime = currency.get_update_time(game=game, league=league)
+            mtime = currency.get_update_time(game=game, league=league, autoupdate=currency_settings.autoupdate)
         except (LookupError, TypeError, ValueError):
             self.currency_lastupdate_label.setText("")
             return
@@ -1285,7 +1265,7 @@ class PoEMarcutGUI(QMainWindow):
             dialog_title="Add PoE2 currency",
         )
 
-    def _add_currency(  # noqa: C901, PLR0912, PLR0915
+    def _add_currency(
         self,
         *,
         game: int,
@@ -1329,65 +1309,10 @@ class PoEMarcutGUI(QMainWindow):
             chosen_key = display_map.get(choice)
             if not chosen_key:
                 return
-
-            # Determine ordering: insert the chosen currency into the existing ordered list
-            # at the position matching its relative value (most valuable -> least valuable).
-            current_order = list(raw.keys())
-            # Remove any existing occurrence so we can re-insert in the right place.
-            if chosen_key in current_order:
-                current_order.remove(chosen_key)
-
-            if not current_order:
-                new_order = [chosen_key]
-            else:
-                inserted = False
-                new_order = []
-                for i, existing in enumerate(current_order):
-                    # If chosen is more valuable than `existing`, insert before it.
-                    try:
-                        rate = currency.get_exchange_rate(game, currency_settings.active_league, chosen_key, existing)
-                        if float(rate) > 1.0:
-                            new_order = [*current_order[:i], chosen_key, *current_order[i:]]
-                            inserted = True
-                            break
-                    except (LookupError, ValueError, TypeError):
-                        # If we can't compare, skip and leave chosen for later insertion
-                        continue
-
-                if not inserted:
-                    # Not more valuable than any existing entry: append to end
-                    new_order = [*current_order, chosen_key]
-
-            # Build mapping: first == 1, subsequent computed from exchange rates
-            mapping: dict[str, int] = {}
-            prev: str | None = None
-            cumulative: float = 1.0
-            for i, name in enumerate(new_order):
-                if i == 0:
-                    mapping[name] = 1
-                    prev = name
-                    cumulative = 1.0
-                    continue
-                if prev is None:
-                    mapping[name] = 1
-                    prev = name
-                    cumulative = 1.0
-                    continue
-                try:
-                    rate = currency.get_exchange_rate(game, currency_settings.active_league, prev, name)
-                    cumulative = cumulative * float(rate)
-                    mapping[name] = max(1, ceil(cumulative))
-                except (LookupError, ValueError, TypeError):
-                    # fallback to existing stored value or 1
-                    try:
-                        mapping[name] = int(raw.get(name, 1))
-                    except (TypeError, ValueError):
-                        mapping[name] = 1
-                prev = name
-
             try:
-                setattr(settings_obj.currency, setting_field, mapping)
-                self.settings_manager.set_settings(settings_obj)
+                self.settings_manager.add_currency_and_persist(
+                    game=game, setting_field=setting_field, chosen_key=chosen_key
+                )
             except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
                 logger.exception("Failed to persist added currency %s to %s", chosen_key, setting_field)
                 return
@@ -1395,7 +1320,8 @@ class PoEMarcutGUI(QMainWindow):
             # Refresh UI list from settings
             try:
                 with QSignalBlocker(list_widget):
-                    self._populate_list_widget(list_widget, list(mapping.keys()), "Currency", setting_field)
+                    updated = getattr(self.settings_manager.settings.currency, setting_field) or {}
+                    self._populate_list_widget(list_widget, list(updated.keys()), "Currency", setting_field)
                 self.populate_currency_list()
             except (AttributeError, RuntimeError, TypeError, ValueError):
                 logger.exception("Failed to refresh currency UI for %s after adding %s", setting_field, chosen_key)
