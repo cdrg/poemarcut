@@ -385,6 +385,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 # Calculate the new discounted price, rounding down (truncate) to ensure price always decreases
                 new_price: int = int(copied_price * adjustment_factor)
 
+                # Small delay before pasting to ensure the price dialog is ready for input
+                time.sleep(0.1)
+
                 # Paste the new price from clipboard
                 logger.info("Pasting new price '%d' from clipboard.", new_price)
                 pyperclip.copy(str(new_price))
@@ -396,11 +399,32 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     # tab to switch focus to currency dropdown
                     pyautogui.press("tab")
 
-                    # type the characters of the shortest possible prefix of the full currency name
-                    # one by one to move the dropdown selection
+                    # move the selection in the dropdown by typing the prefix, or using arrow keys
                     prefix = merchant_currency_prefixes[next_cur_type]
                     time.sleep(0.6)  # long delay is needed for the dropdown to be ready for whatever reason
-                    pyautogui.write(prefix, interval=0.1)
+
+                    # typing to select from dropdown doesn't work well with more than ~3 characters, since there's a timeout
+                    if len(prefix) <= 3:  # noqa: PLR2004
+                        pyautogui.write(prefix, interval=0.1)
+                    # for longer prefixes, we need to determine the numerical difference of the indexes and then use arrow keys
+                    elif last_cur_type is not None:
+                        cur_index = list(merchant_currency_prefixes.keys()).index(last_cur_type)
+                        target_index = list(merchant_currency_prefixes.keys()).index(next_cur_type)
+                        index_diff = target_index - cur_index
+                        if index_diff > 0:
+                            for _ in range(index_diff):
+                                pyautogui.press("down")
+                                time.sleep(0.1)
+                        elif index_diff < 0:
+                            for _ in range(-index_diff):
+                                pyautogui.press("up")
+                                time.sleep(0.1)
+                    else:
+                        logger.warning(
+                            "Unable to select next currency because current currency type is unknown and next currency prefix '%s' is too long.",
+                            prefix,
+                        )
+                        return True  # do nothing
 
                     # enter to confirm the dropdown selection
                     pyautogui.press("enter")

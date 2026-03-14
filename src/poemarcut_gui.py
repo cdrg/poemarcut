@@ -8,6 +8,7 @@ import time
 from collections.abc import Iterable, Mapping
 from functools import partial
 from logging.handlers import RotatingFileHandler
+from math import ceil
 from pathlib import Path
 from types import MappingProxyType
 
@@ -575,7 +576,7 @@ class PoEMarcutGUI(QMainWindow):
             item = list_widget.item(i)
             if item is None:
                 continue
-            w = list_widget.itemWidget(item)
+            w = list_widget.itemWidget(item)  # If we've set a custom widget for this item, read its label
             item_text = None
             if w is not None:
                 lbl = w.findChild(QLabel)
@@ -584,6 +585,14 @@ class PoEMarcutGUI(QMainWindow):
             else:
                 item_text = item.text()
             if item_text == text:
+                # Clean up the attached widget to avoid orphaned overlays
+                if w is not None:
+                    with contextlib.suppress(Exception):
+                        list_widget.removeItemWidget(item)
+                    with contextlib.suppress(Exception):
+                        w.setParent(None)
+                    with contextlib.suppress(Exception):
+                        w.deleteLater()
                 list_widget.takeItem(i)
                 break
         # Persist the new list to settings
@@ -596,6 +605,19 @@ class PoEMarcutGUI(QMainWindow):
         self, list_widget: QListWidget, items: Iterable[str] | None, category: str, setting: str
     ) -> None:
         """Clear and populate `list_widget` with `items`, using item widgets with remove buttons."""
+        # Remove and delete any existing item widgets to avoid orphaned widgets
+        for j in range(list_widget.count()):
+            it = list_widget.item(j)
+            if it is None:
+                continue
+            w = list_widget.itemWidget(it)
+            if w is not None:
+                with contextlib.suppress(Exception):
+                    list_widget.removeItemWidget(it)
+                with contextlib.suppress(Exception):
+                    w.setParent(None)
+                with contextlib.suppress(Exception):
+                    w.deleteLater()
         list_widget.clear()
         if not items:
             return
@@ -684,7 +706,7 @@ class PoEMarcutGUI(QMainWindow):
                     try:
                         rate = currency.get_exchange_rate(game, league, prev, name)
                         cumulative = cumulative * float(rate)
-                        mapping[name] = round(cumulative)
+                        mapping[name] = max(1, ceil(cumulative))
                     except (LookupError, ValueError, TypeError):
                         # Fallback: if we can't fetch a rate, set a conservative 1 unit
                         mapping[name] = 1
@@ -961,7 +983,7 @@ class PoEMarcutGUI(QMainWindow):
                     continue
                 try:
                     rate = currency.get_exchange_rate(game, league, highest, name)
-                    updated_map[name] = round(float(rate))
+                    updated_map[name] = max(1, ceil(float(rate)))
                 except (LookupError, ValueError, TypeError):
                     # fallback to existing stored value or 1
                     try:
@@ -1044,7 +1066,7 @@ class PoEMarcutGUI(QMainWindow):
                     adj_factor = self.settings_manager.settings.logic.adjustment_factor
                     adj_discount: int = round((1 - float(adj_factor)) * 100)
                     adj_value = adj_factor * float(rate)
-                    adj_text = f"{int(adj_value)} {lower}"
+                    adj_text = f"{ceil(adj_value)} {lower}"
                     adj_widget = self._make_currency_display_widget(f"x {adj_discount}% off =", adj_text)
                     adj_item = QListWidgetItem()
                     adj_item.setSizeHint(adj_widget.sizeHint())
@@ -1354,7 +1376,7 @@ class PoEMarcutGUI(QMainWindow):
                 try:
                     rate = currency.get_exchange_rate(game, currency_settings.active_league, prev, name)
                     cumulative = cumulative * float(rate)
-                    mapping[name] = round(cumulative)
+                    mapping[name] = max(1, ceil(cumulative))
                 except (LookupError, ValueError, TypeError):
                     # fallback to existing stored value or 1
                     try:
@@ -1437,7 +1459,7 @@ if __name__ == "__main__":
         "poemarcut_gui.log", mode="a", maxBytes=5 * 1024 * 1024, backupCount=1, encoding="utf-8"
     )  # log to file with rotation, max size 5MB and 1 backup
     file_handler.setLevel(logging.WARNING)
-    gui_handler = _LastLogHandler()
+    gui_handler = _LastLogHandler()  # log to the GUI's latest message label
     gui_handler.setLevel(logging.INFO)
     gui_handler.setFormatter(_EmojiFormatter("%(levelname)s%(message)s"))
 

@@ -8,6 +8,7 @@ BOLD = "\033[1m"  # ANSI escape bold
 RESET = "\033[0m"  # ANSI escape reset
 
 # mapping of PoE1 merchant tab currency trade id to full name
+# ordered by the order in the merchant tab dropdown
 POE1_MERCHANT_CURRENCIES = MappingProxyType(
     {
         "chaos": "Chaos Orb",
@@ -39,17 +40,17 @@ POE1_MERCHANT_CURRENCIES = MappingProxyType(
 )
 
 # mapping of PoE1 merchant tab currency trade id to unique minimum full-name prefix for dropdown selection
-# Note: Longer strings will not work for typing selection. For ~>3, need to use index-based (not yet implemented)
+# ordered by the order in the merchant tab dropdown
 POE1_MERCHANT_CURRENCY_PREFIXES = MappingProxyType(
     {
-        "chaos": "cha",
+        "chaos": "c",
         "divine": "d",
-        "alch": "orbofalc",
+        "alch": "o",
         "exalted": "e",
-        "alt": "orbofalt",
+        "alt": "orbofa",
         "mirror": "m",
-        "chrome": "chr",
-        "blessed": "ble",
+        "chrome": "ch",
+        "blessed": "b",
         "fusing": "orboff",
         "jewellers": "j",
         "regal": "r",
@@ -63,13 +64,14 @@ POE1_MERCHANT_CURRENCY_PREFIXES = MappingProxyType(
         "wisdom": "s",
         "portal": "p",
         "scrap": "a",
-        "whetstone": "bla",
-        "gcp": "ge",
+        "whetstone": "bl",
+        "gcp": "g",
         "bauble": "gl",
     }
 )
 
 # mapping of PoE2 merchant tab currency trade id to full name
+# ordered by the order in the merchant tab dropdown
 POE2_MERCHANT_CURRENCIES = MappingProxyType(
     {
         "exalted": "Exalted Orb",
@@ -100,17 +102,18 @@ POE2_MERCHANT_CURRENCIES = MappingProxyType(
 )
 
 # mapping of PoE2 merchant tab currency trade id to unique minimum full-name prefix for dropdown selection
+# ordered by the order in the merchant tab dropdown
 POE2_MERCHANT_CURRENCY_PREFIXES = MappingProxyType(
     {
         "exalted": "e",
-        "greater-exalted-orb": "greatere",
-        "perfect-exalted-orb": "perfecte",
+        "greater-exalted-orb": "g",
+        "perfect-exalted-orb": "p",
         "divine": "d",
         "chaos": "c",
         "greater-chaos-orb": "greaterc",
         "perfect-chaos-orb": "perfectc",
-        "alch": "orbofal",
-        "annul": "orbofan",
+        "alch": "o",
+        "annul": "orbofa",
         "regal": "r",
         "greater-regal-orb": "greaterr",
         "perfect-regal-orb": "perfectr",
