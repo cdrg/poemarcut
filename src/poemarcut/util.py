@@ -10,6 +10,14 @@ def shortest_unique_prefix(target_string: str, string_list: list[str]) -> str:
 
     Useful for calculating the shortest unique prefix for a currency name in the merchant tab dropdown list,
     to minimize the number of characters that need to be typed to select that currency.
+
+    Args:
+        target_string (str): The string to compute a unique prefix for.
+        string_list (list[str]): Iterable of candidate strings to compare against.
+
+    Returns:
+        str: The shortest unique prefix of `target_string` relative to `string_list`.
+
     """
     # Ensure the target string is actually in the list, and handle potential duplicates by comparing to *other* strings.
     other_strings = [s for s in string_list if s != target_string]

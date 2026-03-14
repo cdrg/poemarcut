@@ -43,7 +43,15 @@ class KeySettings(BaseModel):
     @field_validator("copyitem_key", "rightclick_key", "calcprice_key", "enter_key", "stop_key")
     @classmethod
     def validate_keys(cls, key: str) -> str:
-        """Validate that keys are not empty."""
+        """Validate that keys are not empty.
+
+        Args:
+            key (str): Candidate key string to validate.
+
+        Returns:
+            str: The validated key string.
+
+        """
         if not key:
             msg = "Key cannot be empty"
             raise ValueError(msg)
@@ -109,6 +117,13 @@ class CurrencySettings(BaseModel):
 
         This prevents Pydantic serializer warnings when the input value is a
         list but the model field is declared as `set[str]`.
+
+        Args:
+            v (object | None): Value to coerce into a set of strings.
+
+        Returns:
+            set[str]: The coerced set of league ids.
+
         """
         # Normalize None to empty iterable
         if v is None:
@@ -142,6 +157,9 @@ class CurrencySettings(BaseModel):
         Yields:
             None
 
+        Returns:
+            Generator[None, None, None]: A context manager generator that yields None.
+
         Raises:
             ValidationError: If validation fails when the context manager exits.
 
@@ -164,7 +182,12 @@ class CurrencySettings(BaseModel):
 
     @model_validator(mode="after")
     def ensure_league_in_game_list(self) -> "CurrencySettings":
-        """Validate that active_league is in the appropriate list of leagues based on active_game."""
+        """Validate that active_league is in the appropriate list of leagues based on active_game.
+
+        Returns:
+            CurrencySettings: Self, potentially mutated to correct leagues.
+
+        """
         poe1 = list(self.poe1leagues or [])
         poe2 = list(self.poe2leagues or [])
 
@@ -195,6 +218,10 @@ class CurrencySettings(BaseModel):
         - Requires a dict mapping currency->int units per highest currency.
         - Orders the dict by numeric value (ascending: most valuable -> least).
         - Ensures the smallest value is exactly 1; otherwise raises ValueError.
+
+        Returns:
+            CurrencySettings: Self, normalized and validated.
+
         """
         for attr in ("poe1currencies", "poe2currencies"):
             raw = getattr(self, attr)
@@ -260,7 +287,12 @@ class SettingsManager(QObject):
     settings_changed = pyqtSignal(str, object)
 
     def __init__(self) -> None:
-        """Initialize the SettingsManager and load settings from file."""
+        """Initialize the SettingsManager and load settings from file.
+
+        Returns:
+            None
+
+        """
         super().__init__()
         self._settings = self._load_settings()
 
@@ -276,7 +308,12 @@ class SettingsManager(QObject):
         return self._settings
 
     def _load_settings(self) -> PoEMSettings:
-        """Get PoEMSettings from settings.yaml, or return default settings if file is missing or invalid."""
+        """Get PoEMSettings from settings.yaml, or return default settings if file is missing or invalid.
+
+        Returns:
+            PoEMSettings: Loaded or default settings object.
+
+        """
         try:
             with SETTINGS_FILE.open() as f:
                 settings: PoEMSettings = parse_yaml_file_as(PoEMSettings, f)
@@ -296,7 +333,15 @@ class SettingsManager(QObject):
         return settings
 
     def set_settings(self, new_settings: PoEMSettings) -> None:
-        """Set the settings in settings.yaml, overwriting or creating file."""
+        """Set the settings in settings.yaml, overwriting or creating file.
+
+        Args:
+            new_settings (PoEMSettings): The new settings to persist.
+
+        Returns:
+            None
+
+        """
         # Ensure we store a proper PoEMSettings object (keep nested sections intact)
         # new_settings is expected to be a PoEMSettings instance; reconstruct to be safe
         self._settings = PoEMSettings(
@@ -318,6 +363,15 @@ class SettingsManager(QObject):
 
         Uses helpers in `poemarcut.currency` to compute ordering and mapping based on
         live exchange rates (falls back to existing stored values on error).
+
+        Args:
+            game (int): Game id (1 or 2) indicating which currency mapping to update.
+            setting_field (str): Field name on `CurrencySettings` to update (e.g. 'poe1currencies').
+            chosen_key (str): Currency id to insert.
+
+        Returns:
+            None
+
         """
         settings_obj = self.settings
         currency_settings = settings_obj.currency

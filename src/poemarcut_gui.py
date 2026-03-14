@@ -55,6 +55,15 @@ _log_emitter = LogSignalEmitter()
 
 class _LastLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:  # pragma: no cover - tiny helper
+        """Emit a logging record by forwarding a formatted message via Qt signal.
+
+        Args:
+            record (logging.LogRecord): The record to emit.
+
+        Returns:
+            None
+
+        """
         msg = record.getMessage()
         with contextlib.suppress(Exception):
             msg = self.format(record)
@@ -69,6 +78,15 @@ class _EmojiFormatter(logging.Formatter):
     )
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format a LogRecord, replacing the level name with a symbol.
+
+        Args:
+            record (logging.LogRecord): The record to format.
+
+        Returns:
+            str: The formatted log string with a symbol for the level.
+
+        """
         # Swap levelname for symbol
         record.levelname = self.LEVEL_SYMBOLS.get(record.levelname, record.levelname)
         return super().format(record)
@@ -130,7 +148,12 @@ class PoEMarcutGUI(QMainWindow):
     github_update_ready = pyqtSignal(object)
 
     def __init__(self) -> None:
-        """Initialize the PoEMarcut GUI window and set up the user interface."""
+        """Initialize the PoEMarcut GUI window and set up the user interface.
+
+        Returns:
+            None
+
+        """
         super().__init__()
         # Use the shared SettingsManager singleton
         self.settings_manager: settings.SettingsManager = settings.settings_manager
@@ -182,7 +205,12 @@ class PoEMarcutGUI(QMainWindow):
         logger.info("PoEMarcut initialized")
 
     def init_ui(self) -> None:  # noqa: PLR0915
-        """Set up the user interface components."""
+        """Set up the user interface components.
+
+        Returns:
+            None
+
+        """
         central: QWidget = QWidget()
         main_layout: QGridLayout = QGridLayout()
 
@@ -287,7 +315,12 @@ class PoEMarcutGUI(QMainWindow):
         self.settings_window.hide()  # Start hidden
 
     def setup_settings_sidebar(self) -> None:  # noqa: PLR0915
-        """Build the settings sidebar."""
+        """Build the settings sidebar.
+
+        Returns:
+            None
+
+        """
         settings_man: settings.SettingsManager = self.settings_manager
 
         self.side_settings_layout: QHBoxLayout = QHBoxLayout()
@@ -557,6 +590,16 @@ class PoEMarcutGUI(QMainWindow):
         """Create a QWidget containing a label and an 'X' remove button for a list item.
 
         The remove button will delete the item from the QListWidget and update settings.
+
+        Args:
+            text (str): The text to display for the item.
+            list_widget (QListWidget): The list widget to which the item belongs.
+            category (str): Settings category name.
+            setting (str): Settings field name to update when item removed.
+
+        Returns:
+            QWidget: A widget containing the label and remove button.
+
         """
         container = QWidget()
         layout = QHBoxLayout(container)
@@ -570,7 +613,18 @@ class PoEMarcutGUI(QMainWindow):
         return container
 
     def _remove_list_item(self, list_widget: QListWidget, text: str, category: str, setting: str) -> None:
-        """Remove the first matching item with `text` from `list_widget` and save settings."""
+        """Remove the first matching item with `text` from `list_widget` and save settings.
+
+        Args:
+            list_widget (QListWidget): The widget to remove the item from.
+            text (str): The item text to match and remove.
+            category (str): Settings category name.
+            setting (str): Settings field name to update.
+
+        Returns:
+            None
+
+        """
         for i in range(list_widget.count()):
             item = list_widget.item(i)
             if item is None:
@@ -603,7 +657,18 @@ class PoEMarcutGUI(QMainWindow):
     def _populate_list_widget(
         self, list_widget: QListWidget, items: Iterable[str] | None, category: str, setting: str
     ) -> None:
-        """Clear and populate `list_widget` with `items`, using item widgets with remove buttons."""
+        """Clear and populate `list_widget` with `items`, using item widgets with remove buttons.
+
+        Args:
+            list_widget (QListWidget): The list widget to populate.
+            items (Iterable[str] | None): Iterable of item texts to populate.
+            category (str): Settings category name.
+            setting (str): Settings field name to update when items change.
+
+        Returns:
+            None
+
+        """
         # Remove and delete any existing item widgets to avoid orphaned widgets
         for j in range(list_widget.count()):
             it = list_widget.item(j)
@@ -631,7 +696,17 @@ class PoEMarcutGUI(QMainWindow):
             list_widget.setItemWidget(lw_item, widget)
 
     def process_qle_text(self, category: str, setting: str, qle: QLineEdit) -> None:
-        """Process input for a specific text setting."""
+        """Process input for a specific text setting.
+
+        Args:
+            category (str): Settings category name.
+            setting (str): Settings field name to update.
+            qle (QLineEdit): The QLineEdit containing the new text.
+
+        Returns:
+            None
+
+        """
         try:
             settings_obj = self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), qle.text())
@@ -640,7 +715,17 @@ class PoEMarcutGUI(QMainWindow):
             logger.exception("Failed to set text setting %s.%s", category, setting)
 
     def process_qle_float(self, category: str, setting: str, qle: QLineEdit) -> None:
-        """Process input for a specific float setting."""
+        """Process input for a specific float setting.
+
+        Args:
+            category (str): Settings category name.
+            setting (str): Settings field name to update.
+            qle (QLineEdit): The QLineEdit containing the new numeric text.
+
+        Returns:
+            None
+
+        """
         try:
             value = float(qle.text())
             settings_obj = self.settings_manager.settings
@@ -652,7 +737,17 @@ class PoEMarcutGUI(QMainWindow):
             logger.exception("Failed to set float setting %s.%s", category, setting)
 
     def process_qcb(self, category: str, setting: str, checkbox: QCheckBox) -> None:
-        """Process input for a specific boolean setting."""
+        """Process input for a specific boolean setting.
+
+        Args:
+            category (str): Settings category name.
+            setting (str): Settings field name to update.
+            checkbox (QCheckBox): The checkbox widget with the new state.
+
+        Returns:
+            None
+
+        """
         try:
             settings_obj = self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), checkbox.isChecked())
@@ -664,6 +759,16 @@ class PoEMarcutGUI(QMainWindow):
         """Process input for a specific list setting.
 
         Accepts extra positional args from Qt signals and ignores them.
+
+        Args:
+            category (str): Settings category name.
+            setting (str): Settings field name to update.
+            list_widget (QListWidget): The widget containing the items.
+            _ (object): Extra ignored args from Qt signals.
+
+        Returns:
+            None
+
         """
         # Collect the current items from the QListWidget and store them in settings
         items: list[str] = []
@@ -707,6 +812,14 @@ class PoEMarcutGUI(QMainWindow):
         """Slot called when a setting is changed; updates the corresponding widget.
 
         The `full_field` is in the form "category.field".
+
+        Args:
+            full_field (str): Dot-separated field name ("category.field").
+            value (object): New value for the setting.
+
+        Returns:
+            None
+
         """
         try:
             category, setting = full_field.split(".", 1)
@@ -723,14 +836,32 @@ class PoEMarcutGUI(QMainWindow):
             self._handle_currency_setting(setting, value)
 
     def _handle_key_setting(self, setting: str, value: object) -> None:
-        """Update key-related widgets when settings change."""
+        """Update key-related widgets when settings change.
+
+        Args:
+            setting (str): The specific key setting name.
+            value (object): The new value for the setting.
+
+        Returns:
+            None
+
+        """
         if setting in getattr(self, "key_lineedits", {}):
             le = self.key_lineedits[setting]
             with QSignalBlocker(le):
                 le.setText(str(value))
 
     def _handle_logic_setting(self, setting: str, value: object) -> None:
-        """Update logic-related widgets when settings change."""
+        """Update logic-related widgets when settings change.
+
+        Args:
+            setting (str): Logic field name.
+            value (object): New value for the logic setting.
+
+        Returns:
+            None
+
+        """
         if setting == "adjustment_factor":
             with QSignalBlocker(self.adj_factor_le):
                 self.adj_factor_le.setText(str(value))
@@ -742,7 +873,16 @@ class PoEMarcutGUI(QMainWindow):
                 self.enter_after_cb.setChecked(bool(value))
 
     def _handle_currency_setting(self, setting: str, value: object) -> None:
-        """Handle updates for currency-related settings."""
+        """Handle updates for currency-related settings.
+
+        Args:
+            setting (str): Currency settings field name.
+            value (object): New value for the field.
+
+        Returns:
+            None
+
+        """
         if setting == "assume_highest_currency":
             with QSignalBlocker(self.assume_highest_currency_cb):
                 self.assume_highest_currency_cb.setChecked(bool(value))
@@ -785,7 +925,12 @@ class PoEMarcutGUI(QMainWindow):
                 self.populate_league_combo()
 
     def toggle_always_on_top(self) -> None:
-        """Toggle the always-stays-on-top window flag."""
+        """Toggle the always-stays-on-top window flag.
+
+        Returns:
+            None
+
+        """
         self.hide()
         if self.pin_checkbox.isChecked():
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on=True)
@@ -794,7 +939,12 @@ class PoEMarcutGUI(QMainWindow):
         self.show()
 
     def toggle_settings_window(self) -> None:
-        """Toggle visibility of the settings window."""
+        """Toggle visibility of the settings window.
+
+        Returns:
+            None
+
+        """
         # Show/hide the separate top-level settings window and position it
         try:
             if self.settings_window.isVisible():
@@ -817,7 +967,16 @@ class PoEMarcutGUI(QMainWindow):
             return
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:  # noqa: N802 - Qt override uses camelCase
-        """Track move events to keep the settings window positioned to the right."""
+        """Track move events to keep the settings window positioned to the right.
+
+        Args:
+            a0 (QObject | None): The watched object.
+            a1 (QEvent | None): The event being filtered.
+
+        Returns:
+            bool: True if the event was handled, otherwise delegates to super.
+
+        """
         if (
             a0 is self
             and a1 is not None
@@ -833,7 +992,15 @@ class PoEMarcutGUI(QMainWindow):
         return super().eventFilter(a0, a1)
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:  # noqa: N802 pyqt override uses camelCase
-        """Ensure the settings window is closed and the application exits when main window closes."""
+        """Ensure the settings window is closed and the application exits when main window closes.
+
+        Args:
+            a0 (QCloseEvent | None): The close event passed by Qt.
+
+        Returns:
+            None
+
+        """
         try:
             if getattr(self, "settings_window", None) is not None:
                 # Close the secondary settings window if it's open
@@ -853,7 +1020,12 @@ class PoEMarcutGUI(QMainWindow):
             a0.accept()
 
     def toggle_hotkeys(self) -> None:
-        """Enable or disable the keyboard hotkeys listener."""
+        """Enable or disable the keyboard hotkeys listener.
+
+        Returns:
+            None
+
+        """
         if not self.hotkeys_enabled:
             try:
                 listener = keyboard.start_listener(blocking=False, on_stop=self._notify_hotkeys_listener_stopped)
@@ -874,15 +1046,33 @@ class PoEMarcutGUI(QMainWindow):
             self._set_hotkeys_ui_state(enabled=False)
 
     def _notify_hotkeys_listener_stopped(self) -> None:
-        """Notify the GUI thread that the listener has stopped itself."""
+        """Notify the GUI thread that the listener has stopped itself.
+
+        Returns:
+            None
+
+        """
         self.hotkeys_listener_stopped.emit()
 
     def _on_hotkeys_listener_stopped(self) -> None:
-        """Update button and indicator when listener exits from stop_key."""
+        """Update button and indicator when listener exits from stop_key.
+
+        Returns:
+            None
+
+        """
         self._set_hotkeys_ui_state(enabled=False)
 
     def _set_hotkeys_ui_state(self, *, enabled: bool) -> None:
-        """Set hotkeys button text and indicator to match listener state."""
+        """Set hotkeys button text and indicator to match listener state.
+
+        Args:
+            enabled (bool): Whether hotkeys are enabled.
+
+        Returns:
+            None
+
+        """
         self.hotkeys_enabled = enabled
         if enabled:
             self.hotkeys_button.setText("Disable hotkeys")
@@ -894,7 +1084,12 @@ class PoEMarcutGUI(QMainWindow):
         self.indicator.setToolTip("Hotkeys disabled")
 
     def populate_league_combo(self) -> None:
-        """Populate the league combo box."""
+        """Populate the league combo box.
+
+        Returns:
+            None
+
+        """
         settings_man: settings.SettingsManager = self.settings_manager
         self.league_combo.clear()
         # Map displayed item text -> original league id for reverse lookup
@@ -931,6 +1126,14 @@ class PoEMarcutGUI(QMainWindow):
         """Create a compact QWidget showing a currency name and a value label beside it.
 
         `value_text` is expected to already be formatted (e.g. "100.00 chaos").
+
+        Args:
+            currency_name (str): The currency display name.
+            value_text (str | None): Preformatted value text to show next to the name.
+
+        Returns:
+            QWidget: A small widget containing the currency name and value.
+
         """
         container = QWidget()
         layout = QHBoxLayout(container)
@@ -945,7 +1148,12 @@ class PoEMarcutGUI(QMainWindow):
         return container
 
     def populate_currency_list(self) -> None:  # noqa: C901, PLR0912, PLR0915
-        """Populate the main currency list for the currently active game."""
+        """Populate the main currency list for the currently active game.
+
+        Returns:
+            None
+
+        """
         currency_settings = self.settings_manager.settings.currency
         raw_currencies = (
             currency_settings.poe1currencies if currency_settings.active_game == 1 else currency_settings.poe2currencies
@@ -1090,7 +1298,12 @@ class PoEMarcutGUI(QMainWindow):
                 self.currency_lastupdate_label.setText("")
 
     def populate_league_settings(self) -> None:
-        """Refresh league-related widgets after leagues are updated."""
+        """Refresh league-related widgets after leagues are updated.
+
+        Returns:
+            None
+
+        """
         try:
             currency_settings = self.settings_manager.settings.currency
 
@@ -1119,7 +1332,12 @@ class PoEMarcutGUI(QMainWindow):
             logger.exception("Failed to populate league settings")
 
     def _update_currency_update_label(self) -> None:
-        """Refresh `self.currency_update_label` with the latest currency mtime."""
+        """Refresh `self.currency_update_label` with the latest currency mtime.
+
+        Returns:
+            None
+
+        """
         currency_settings = self.settings_manager.settings.currency
         game = currency_settings.active_game
         league = currency_settings.active_league
@@ -1149,6 +1367,13 @@ class PoEMarcutGUI(QMainWindow):
         """Slot invoked on the GUI thread when a new log message is emitted.
 
         Updates `self.log_output_label` if the message changed.
+
+        Args:
+            msg (str): The latest formatted log message.
+
+        Returns:
+            None
+
         """
         if not msg:
             return
@@ -1172,6 +1397,13 @@ class PoEMarcutGUI(QMainWindow):
         """Handle user selection in `league_combo` and persist active game/league.
 
         Items in the combo are formatted as "<league> [PoE1]" or "<league> [PoE2]".
+
+        Args:
+            index (int): The selected index in the combo box.
+
+        Returns:
+            None
+
         """
         try:
             text = self.league_combo.currentText() if index is None or index < 0 else self.league_combo.itemText(index)
@@ -1213,7 +1445,12 @@ class PoEMarcutGUI(QMainWindow):
             logger.exception("Failed to persist active game/league from league_combo selection")
 
     def _check_github_update(self) -> None:
-        """Check for update in background and update label if needed."""
+        """Check for update in background and update label if needed.
+
+        Returns:
+            None
+
+        """
         try:
             available, _ver = update.is_github_update_available()
         except (OSError, RuntimeError):
@@ -1230,6 +1467,13 @@ class PoEMarcutGUI(QMainWindow):
         """Slot invoked on the GUI thread when github update check completes.
 
         `ver` is the latest version string if an update is available, or `None` otherwise.
+
+        Args:
+            ver (str | None): Latest version string if update available, else `None`.
+
+        Returns:
+            None
+
         """
         try:
             if ver is not None:
@@ -1246,7 +1490,12 @@ class PoEMarcutGUI(QMainWindow):
             logger.exception("Failed to update github_update_label in _on_github_update_ready")
 
     def add_poe1_currency(self) -> None:
-        """Add a PoE1 currency from the input box to settings, then update UI list from settings."""
+        """Add a PoE1 currency from the input box to settings, then update UI list from settings.
+
+        Returns:
+            None
+
+        """
         self._add_currency(
             game=1,
             merchant_map=constants.POE1_MERCHANT_CURRENCIES,
@@ -1256,7 +1505,12 @@ class PoEMarcutGUI(QMainWindow):
         )
 
     def add_poe2_currency(self) -> None:
-        """Add a PoE2 currency from the input box to settings, then update UI list from settings."""
+        """Add a PoE2 currency from the input box to settings, then update UI list from settings.
+
+        Returns:
+            None
+
+        """
         self._add_currency(
             game=2,
             merchant_map=constants.POE2_MERCHANT_CURRENCIES,
@@ -1281,6 +1535,17 @@ class PoEMarcutGUI(QMainWindow):
         - `setting_field`: field name on `settings_obj.currency` (e.g. 'poe1currencies')
         - `list_widget`: the QListWidget to refresh after adding
         - `dialog_title`: title for the input dialog
+
+        Args:
+            game (int): Game id (1 or 2).
+            merchant_map (Mapping[str, str]): Mapping of merchant currency id to display name.
+            setting_field (str): Attribute name on `settings_obj.currency` to update.
+            list_widget (QListWidget): Widget to refresh after adding.
+            dialog_title (str): Title for the input dialog.
+
+        Returns:
+            None
+
         """
         try:
             settings_obj = self.settings_manager.settings
@@ -1329,15 +1594,34 @@ class PoEMarcutGUI(QMainWindow):
             logger.exception("Failed in _add_currency for %s", setting_field)
 
     def get_poe1_leagues(self) -> None:
-        """Get PoE1 leagues, update settings, then update UI."""
+        """Get PoE1 leagues, update settings, then update UI.
+
+        Returns:
+            None
+
+        """
         self._update_leagues_and_ui(game=1, setting_attr="poe1leagues")
 
     def get_poe2_leagues(self) -> None:
-        """Get PoE2 leagues, update settings, then update UI."""
+        """Get PoE2 leagues, update settings, then update UI.
+
+        Returns:
+            None
+
+        """
         self._update_leagues_and_ui(game=2, setting_attr="poe2leagues")
 
     def _update_leagues_and_ui(self, *, game: int, setting_attr: str) -> None:
-        """Shared logic for updating leagues from the API and refreshing UI."""
+        """Shared logic for updating leagues from the API and refreshing UI.
+
+        Args:
+            game (int): Game id (1 or 2).
+            setting_attr (str): Attribute name on currency settings to update.
+
+        Returns:
+            None
+
+        """
         leagues: set[str] | None = currency.get_leagues(game=game)
         try:
             settings_obj = self.settings_manager.settings

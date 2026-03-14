@@ -42,7 +42,16 @@ _parsed_keys: dict[str, tuple[str, Any]] = {}
 
 
 def _match_char(event_key: Key | KeyCode | None, char: str) -> bool:
-    """Return True if the event_key matches the provided character string."""
+    """Return True if the event_key matches the provided character string.
+
+    Args:
+        event_key (Key | KeyCode | None): The event key from the listener.
+        char (str): Single-character string to compare.
+
+    Returns:
+        bool: True if the event key represents the given character.
+
+    """
     if not isinstance(event_key, KeyCode):
         return False
     if getattr(event_key, "char", None) == char:
@@ -58,6 +67,14 @@ def binding_matches(event_key: Key | KeyCode | None, binding: tuple[str, Any]) -
 
     Binding tuples have shape `(type_str, value)` where `type_str` is one
     of: 'special', 'vk', 'scan', 'char'.
+
+    Args:
+        event_key (Key | KeyCode | None): The key event to match.
+        binding (tuple[str, Any]): Parsed binding tuple.
+
+    Returns:
+        bool: True if the event matches the binding.
+
     """
     if not isinstance(binding, tuple) or len(binding) != 2:  # noqa: PLR2004
         return False
@@ -88,7 +105,12 @@ class KeyboardListenerManager:
     """
 
     def __init__(self) -> None:
-        """Initialize the manager's lock and listener state."""
+        """Initialize the manager's lock and listener state.
+
+        Returns:
+            None
+
+        """
         self._lock = Lock()
         self._listener: Listener | None = None
 
@@ -105,6 +127,15 @@ class KeyboardListenerManager:
         """
 
         def _on_release(key: Key | KeyCode | None) -> bool:
+            """Wrap the module-level `on_release` used by the Listener.
+
+            Args:
+                key (Key | KeyCode | None): The released key event supplied by pynput.
+
+            Returns:
+                bool: True to continue listening, False to stop.
+
+            """
             should_continue = on_release(key=key)
             if not should_continue and on_stop is not None:
                 # Let on_stop exceptions propagate so they're visible to callers.
@@ -143,6 +174,10 @@ class KeyboardListenerManager:
         """Stop the currently tracked listener, if any.
 
         Safe to call from another thread. No-op if there's no active listener.
+
+        Returns:
+            None
+
         """
         with self._lock:
             listener = self._listener
@@ -175,6 +210,9 @@ def start_listener(
         on_stop (Callable[[], None] | None): Optional callback invoked when
             the listener stops itself by handling the configured stop key.
 
+    Returns:
+        Listener | None: The started Listener when `blocking` is False, otherwise None.
+
     """
     # Delegate to the module-level singleton manager. The manager handles
     # storing and stopping the active Listener instance.
@@ -189,6 +227,10 @@ def stop_listener() -> None:
 
     This delegates to the `KeyboardListenerManager` singleton and is safe
     to call from another thread.
+
+    Returns:
+        None
+
     """
     _listener_manager.stop()
 
@@ -250,6 +292,15 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
 
         # Helper to fetch parsed binding safely (may be missing if parsing failed)
         def _get_binding(name: str) -> tuple[str, Any] | None:
+            """Retrieve a parsed binding by name from the module cache.
+
+            Args:
+                name (str): The settings key name for the binding.
+
+            Returns:
+                tuple[str, Any] | None: Parsed binding tuple or None if missing.
+
+            """
             with _parsed_keys_lock:
                 return _parsed_keys.get(name)
 

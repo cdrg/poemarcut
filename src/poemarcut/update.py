@@ -19,6 +19,10 @@ def version_str_to_tuple(version_str: str) -> tuple:
     Args:
         version_str (str): the version string to convert
 
+    Returns:
+        tuple: A tuple of integers representing the numeric parts of the version,
+            or a tuple with the original string when numeric parsing fails.
+
     """
     if not version_str:
         return ()

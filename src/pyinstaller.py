@@ -13,7 +13,12 @@ path_to_main = str(SRC_ROOT / "poemarcut_gui.py")
 
 
 def install() -> None:
-    """Build release executable using PyInstaller and package it + config file into a zip file."""
+    """Build release executable using PyInstaller and package it + config file into a zip file.
+
+    Returns:
+        None
+
+    """
     # delete contents of existing dist directory so it's clean
     if (PROJ_ROOT / "dist").exists():
         shutil.rmtree(PROJ_ROOT / "dist")

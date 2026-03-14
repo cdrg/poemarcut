@@ -23,6 +23,9 @@ def print_last_updated(game: int, league: str, file_mtime: float) -> None:
         league (str): The league name.
         file_mtime (float): The mtime of the cache file.
 
+    Returns:
+        None
+
     """
     time_diff = time.time() - file_mtime
     diff_hours = int(time_diff // S_IN_HOUR)
@@ -38,6 +41,9 @@ def print_poe1_currency_suggestions(adjustment_factor: float, data: dict) -> Non
     Args:
         adjustment_factor (float): The factor by which the price is being adjusted.
         data (dict): The currency data fetched from poe.ninja.
+
+    Returns:
+        None
 
     """
     if "lines" in data and "core" in data and data["core"].get("primary"):
@@ -71,6 +77,9 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
     Args:
         adjustment_factor (float): The factor by which the price is being adjusted.
         data (dict): The currency data fetched from poe.ninja.
+
+    Returns:
+        None
 
     """
     if (
@@ -114,7 +123,12 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
 
 
 def main() -> int:  # noqa: C901
-    """Read settings from file, fetch and print currency values, then start keyboard listener."""
+    """Read settings from file, fetch and print currency values, then start keyboard listener.
+
+    Returns:
+        int: Process exit code (0 for success).
+
+    """
     logging.basicConfig(
         level=logging.WARNING,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -130,6 +144,15 @@ def main() -> int:  # noqa: C901
     }
 
     def _binding_to_str(binding: tuple[str, object]) -> str:
+        """Format a keyboard binding tuple as a readable string.
+
+        Args:
+            binding (tuple[str, object]): A tuple of binding type and value.
+
+        Returns:
+            str: Human-readable representation of the binding.
+
+        """
         t, v = binding
         if t == "special":
             return str(v)
@@ -142,6 +165,12 @@ def main() -> int:  # noqa: C901
         return str(binding)
 
     def _print_instructions() -> None:
+        """Print user-facing keyboard instructions to the console.
+
+        Returns:
+            None
+
+        """
         print("> PoEMarcut running <")
         print(
             f'Press "{_binding_to_str(keys["copyitem_key"])}" or "ctrl+shift+c" with item hovered to copy to clipboard, then... '
@@ -158,6 +187,15 @@ def main() -> int:  # noqa: C901
     _print_instructions()
 
     def _print_currency_suggestions(adjustment_factor: float) -> None:
+        """Fetch and print currency suggestions for supported games.
+
+        Args:
+            adjustment_factor (float): Multiplier used to compute suggested prices.
+
+        Returns:
+            None
+
+        """
         games: list[int] = [1, 2]
         for game in games:
             league = (

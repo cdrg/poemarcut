@@ -65,17 +65,37 @@ class Item:
     note: Note | None = None
 
     def add_implicit(self, mod: Mod) -> None:
-        """Add an implicit mod to the item."""
+        """Add an implicit mod to the item.
+
+        Args:
+            mod (Item.Mod): The implicit mod to append.
+
+        Returns:
+            None
+
+        """
         self.implicit_mods.append(mod)
 
     def add_explicit(self, mod: Mod) -> None:
-        """Add an explicit mod to the item."""
+        """Add an explicit mod to the item.
+
+        Args:
+            mod (Item.Mod): The explicit mod to append.
+
+        Returns:
+            None
+
+        """
         self.explicit_mods.append(mod)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize item to a plain dictionary.
 
         Useful for logging or JSON serialization.
+
+        Returns:
+            dict[str, Any]: A plain-serializable mapping of item attributes.
+
         """
         return {
             "rarity": self.rarity.value if self.rarity is not None else None,
@@ -99,6 +119,13 @@ class Item:
         and basic workflows: it extracts `class_`, `rarity`, `name`,
         `basetype`, `item_level`, `droplevel` (map tier), simple
         `requirements` (level), and the trade `note` (with price/currency).
+
+        Args:
+            text (str): Raw item text copied from the game or clipboard.
+
+        Returns:
+            Item: Parsed Item instance.
+
         """
         lines_raw = text.splitlines()
         lines = [raw.strip() for raw in lines_raw if raw.strip()]
@@ -114,6 +141,15 @@ class Item:
 
         # Helper to map rarity string to enum
         def _map_rarity(rarity_str: str) -> "Item.Rarity | None":
+            """Map a rarity string to the `Item.Rarity` enum.
+
+            Args:
+                rarity_str (str): The rarity string parsed from item text.
+
+            Returns:
+                Item.Rarity | None: Matching enum member or None if unknown.
+
+            """
             if not rarity_str:
                 return None
             lr = rarity_str.strip().lower()

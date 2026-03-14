@@ -37,12 +37,27 @@ class CurrencyStore:
     """
 
     def __init__(self) -> None:
-        """Initialize the store."""
+        """Initialize the store.
+
+        Returns:
+            None
+
+        """
         self.currency_data_by_league: dict[str, dict] = {}
         self.last_updated: float = 0.0
 
     def get_data(self, game: int, league: str, *, update: bool) -> dict:
-        """Return the currency data for the specified game and league."""
+        """Return the currency data for the specified game and league.
+
+        Args:
+            game (int): The game version, either 1 (PoE1) or 2 (PoE2).
+            league (str): The league name to fetch currency prices for.
+            update (bool): Whether to fetch fresh data from API if cache is stale.
+
+        Returns:
+            dict: The currency data dict stored for the league.
+
+        """
         if game not in (1, 2):
             msg = "Invalid game, must be 1 or 2"
             raise ValueError(msg)
@@ -303,6 +318,17 @@ def compute_new_order(
     Attempts to insert `chosen_key` before the first existing currency that is less
     valuable (i.e. exchange_rate(chosen_key -> existing) > 1). On compare errors
     the chosen_key is appended to the end.
+
+    Args:
+        game (int): Game id, 1 or 2.
+        league (str): League name.
+        current_order (list[str]): Current ordered list of currency ids.
+        chosen_key (str): Currency id to insert.
+        autoupdate (bool): Whether to refresh live rates when computing order.
+
+    Returns:
+        list[str]: New ordered list with `chosen_key` inserted.
+
     """
     # Remove any existing occurrence so we can re-insert in the right place.
     if chosen_key in current_order:
@@ -336,7 +362,18 @@ def compute_mapping_from_order(
 
     - first item gets 1
     - subsequent items computed via exchange rates cumulative product, rounded up;
-      falls back to `existing_raw` or 1 on failure
+        falls back to `existing_raw` or 1 on failure
+
+    Args:
+            game (int): Game id, 1 or 2.
+            league (str): League name.
+            ordered (list[str]): Ordered list of currency ids (most->least valuable).
+            existing_raw (dict[str,int] | None): Optional existing mapping to fall back to.
+            autoupdate (bool): Whether to refresh live rates when computing mapping.
+
+    Returns:
+            dict[str,int]: Mapping from currency id to integer units relative to highest.
+
     """
     mapping: dict[str, int] = {}
     prev: str | None = None
