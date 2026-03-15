@@ -145,6 +145,8 @@ class PoEMarcutGUI(QMainWindow):
     # Emitted when a GitHub update check completes: (version: str|None)
     # A non-None version indicates an update is available.
     github_update_ready = pyqtSignal(object)
+    # Emitted when a background league fetch completes: (game: int, leagues: set[str] | None)
+    leagues_ready = pyqtSignal(int, object)
 
     def __init__(self) -> None:
         """Initialize the PoEMarcut GUI window and set up the user interface.
@@ -197,6 +199,8 @@ class PoEMarcutGUI(QMainWindow):
         try:
             # connect signal to slot so updates arrive on the GUI thread
             self.github_update_ready.connect(self._on_github_update_ready)
+            # connect leagues_ready to handler that updates settings/UI on GUI thread
+            self.leagues_ready.connect(self._on_leagues_ready)
             threading.Thread(target=self._check_github_update, daemon=True).start()
         except (RuntimeError, TypeError):
             logger.exception("Failed to start background thread for github update check")
@@ -437,7 +441,7 @@ class PoEMarcutGUI(QMainWindow):
 
         # final stretch so the left panel doesn't collapse
         leftthird_layout.setRowStretch(row_idx, 1)
-        self.side_settings_layout.addLayout(leftthird_layout)
+        self.side_settings_layout.addLayout(leftthird_layout, 0)
 
         ### middle panel of settings
         middle_layout: QVBoxLayout = QVBoxLayout()
@@ -504,7 +508,7 @@ class PoEMarcutGUI(QMainWindow):
         middle_layout.addWidget(self.add_poe2_currency_button)
 
         middle_layout.addStretch()
-        self.side_settings_layout.addLayout(middle_layout)
+        self.side_settings_layout.addLayout(middle_layout, 1)
 
         ### right panel of settings
         rightthird_layout: QVBoxLayout = QVBoxLayout()
@@ -533,6 +537,7 @@ class PoEMarcutGUI(QMainWindow):
         p1l_list_layout.addWidget(p1l_setting_label)
 
         self.p1l_list_widget = QListWidget()
+        self.p1l_list_widget.setMinimumWidth(160)
         self._populate_list_widget(self.p1l_list_widget, currency_settings.poe1leagues, "Currency", "poe1leagues")
         self.p1l_list_widget.currentItemChanged.connect(
             partial(self.process_qlw, "Currency", "poe1leagues", self.p1l_list_widget)
@@ -554,6 +559,7 @@ class PoEMarcutGUI(QMainWindow):
         p2l_list_layout.addWidget(p2l_setting_label)
 
         self.p2l_list_widget = QListWidget()
+        self.p2l_list_widget.setMinimumWidth(160)
         self._populate_list_widget(self.p2l_list_widget, currency_settings.poe2leagues, "Currency", "poe2leagues")
         self.p2l_list_widget.currentItemChanged.connect(
             partial(self.process_qlw, "Currency", "poe2leagues", self.p2l_list_widget)
@@ -567,7 +573,7 @@ class PoEMarcutGUI(QMainWindow):
         self.get_poe2_leagues_button.clicked.connect(self.get_poe2_leagues)
         rightthird_layout.addWidget(self.get_poe2_leagues_button)
 
-        self.side_settings_layout.addLayout(rightthird_layout)
+        self.side_settings_layout.addLayout(rightthird_layout, 1)
 
         # React to external setting changes and update widgets
         try:
@@ -575,7 +581,9 @@ class PoEMarcutGUI(QMainWindow):
         except AttributeError:
             logger.exception("Failed to connect settings_changed signal")
 
-    def _make_list_item_widget(self, text: str, list_widget: QListWidget, category: str, setting: str) -> QWidget:
+    def _make_list_item_widget(
+        self, text: str, list_widget: QListWidget, category: str, setting: str, *, allow_remove: bool = True
+    ) -> QWidget:
         """Create a QWidget containing a label and an 'X' remove button for a list item.
 
         The remove button will delete the item from the QListWidget and update settings.
@@ -585,6 +593,7 @@ class PoEMarcutGUI(QMainWindow):
             list_widget (QListWidget): The list widget to which the item belongs.
             category (str): Settings category name.
             setting (str): Settings field name to update when item removed.
+            allow_remove (bool): Whether to enable the remove button. Should be False if this is the last item.
 
         Returns:
             QWidget: A widget containing the label and remove button.
@@ -597,7 +606,12 @@ class PoEMarcutGUI(QMainWindow):
         layout.addWidget(label, stretch=1)
         remove_btn = QPushButton("X")
         remove_btn.setFixedWidth(28)
-        remove_btn.clicked.connect(partial(self._remove_list_item, list_widget, text, category, setting))
+        remove_btn.setEnabled(bool(allow_remove))
+        if allow_remove:
+            remove_btn.clicked.connect(partial(self._remove_list_item, list_widget, text, category, setting))
+        else:
+            # If removal is not allowed (last item), give a tooltip explaining why
+            remove_btn.setToolTip("Cannot remove the last item")
         layout.addWidget(remove_btn)
         return container
 
@@ -614,6 +628,10 @@ class PoEMarcutGUI(QMainWindow):
             None
 
         """
+        # Prevent removing the final item in the list
+        if list_widget.count() <= 1:
+            return
+
         for i in range(list_widget.count()):
             item = list_widget.item(i)
             if item is None:
@@ -677,9 +695,12 @@ class PoEMarcutGUI(QMainWindow):
         # Ensure deterministic order for sets
         if isinstance(items, set):
             items = sorted(items)
-        for it in items:
+        items_list = list(items) if items is not None else []
+        total = len(items_list)
+        for it in items_list:
             lw_item = QListWidgetItem()
-            widget = self._make_list_item_widget(str(it), list_widget, category, setting)
+            # Disable remove when this is the only item
+            widget = self._make_list_item_widget(str(it), list_widget, category, setting, allow_remove=(total > 1))
             lw_item.setSizeHint(widget.sizeHint())
             list_widget.addItem(lw_item)
             list_widget.setItemWidget(lw_item, widget)
@@ -1611,7 +1632,15 @@ class PoEMarcutGUI(QMainWindow):
             None
 
         """
-        self._update_leagues_and_ui(game=1, setting_attr="poe1leagues")
+        # Fetch leagues in background to avoid blocking the GUI thread
+        try:
+            threading.Thread(target=lambda: self._fetch_leagues_bg(1), daemon=True).start()
+            # Disable the button while fetch is in progress
+            with contextlib.suppress(Exception):
+                self.get_poe1_leagues_button.setEnabled(False)
+        except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
+            # Fallback to synchronous behavior if threading fails
+            self._update_leagues_and_ui(game=1, setting_attr="poe1leagues")
 
     def get_poe2_leagues(self) -> None:
         """Get PoE2 leagues, update settings, then update UI.
@@ -1620,7 +1649,15 @@ class PoEMarcutGUI(QMainWindow):
             None
 
         """
-        self._update_leagues_and_ui(game=2, setting_attr="poe2leagues")
+        # Fetch leagues in background to avoid blocking the GUI thread
+        try:
+            threading.Thread(target=lambda: self._fetch_leagues_bg(2), daemon=True).start()
+            # Disable the button while fetch is in progress
+            with contextlib.suppress(Exception):
+                self.get_poe2_leagues_button.setEnabled(False)
+        except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
+            # Fallback to synchronous behavior if threading fails
+            self._update_leagues_and_ui(game=2, setting_attr="poe2leagues")
 
     def _update_leagues_and_ui(self, *, game: int, setting_attr: str) -> None:
         """Shared logic for updating leagues from the API and refreshing UI.
@@ -1636,13 +1673,83 @@ class PoEMarcutGUI(QMainWindow):
         leagues: set[str] | None = currency.get_leagues(game=game)
         try:
             settings_obj = self.settings_manager.settings
-            setattr(settings_obj.currency, setting_attr, set(leagues or []))
-            self.settings_manager.set_settings(settings_obj)
+            new_leagues = set(leagues or [])
+            try:
+                # Batch the update so validators run against the final consistent state
+                with settings_obj.currency.delay_validation():
+                    setattr(settings_obj.currency, setting_attr, new_leagues)
+                    # If active_game matches and the active_league would become invalid,
+                    # pick a sensible default from the new list to avoid transient warnings.
+                    if settings_obj.currency.active_game == game and (
+                        settings_obj.currency.active_league not in new_leagues and new_leagues
+                    ):
+                        settings_obj.currency.active_league = sorted(new_leagues)[0]
+                self.settings_manager.set_settings(settings_obj)
+            except (AttributeError, TypeError, ValueError):
+                # Fallback to previous behavior if delay_validation isn't available or fails
+                setattr(settings_obj.currency, setting_attr, new_leagues)
+                self.settings_manager.set_settings(settings_obj)
         except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
             logger.exception("Failed to update %s from get_poe%d_leagues", setting_attr, game)
         # Always refresh UI widgets afterwards
         self.populate_league_combo()
         self.populate_league_settings()
+
+    def _fetch_leagues_bg(self, game: int) -> None:
+        """Background helper: fetch leagues and emit `leagues_ready` on completion.
+
+        Keeps network I/O off the GUI thread. Emits (game, leagues_set_or_None).
+        """
+        try:
+            leagues = currency.get_leagues(game=game)
+        except (LookupError, TypeError, ValueError):
+            leagues = None
+        try:
+            self.leagues_ready.emit(game, leagues)
+        except (RuntimeError, TypeError):
+            logger.exception("Failed to emit leagues_ready signal")
+
+    def _on_leagues_ready(self, game: int, leagues: set | None) -> None:
+        """Slot run on GUI thread when background league fetch completes.
+
+        Persists updated leagues via settings and refreshes UI. Also re-enables
+        the Get buttons that were disabled while fetching.
+        """
+        setting_attr = "poe1leagues" if game == 1 else "poe2leagues"
+        try:
+            settings_obj = self.settings_manager.settings
+            new_leagues = set(leagues or [])
+            try:
+                with settings_obj.currency.delay_validation():
+                    setattr(settings_obj.currency, setting_attr, new_leagues)
+                    if settings_obj.currency.active_game == game and (
+                        settings_obj.currency.active_league not in new_leagues and new_leagues
+                    ):
+                        settings_obj.currency.active_league = sorted(new_leagues)[0]
+                self.settings_manager.set_settings(settings_obj)
+            except (AttributeError, TypeError, ValueError):
+                setattr(settings_obj.currency, setting_attr, new_leagues)
+                self.settings_manager.set_settings(settings_obj)
+        except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
+            logger.exception("Failed to persist %s from background league fetch", setting_attr)
+
+        # Refresh UI regardless of persistence result
+        try:
+            self.populate_league_combo()
+            self.populate_league_settings()
+        except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
+            logger.exception("Failed to refresh UI after league fetch")
+
+        # Re-enable the appropriate button
+        try:
+            if game == 1:
+                with contextlib.suppress(Exception):
+                    self.get_poe1_leagues_button.setEnabled(True)
+            else:
+                with contextlib.suppress(Exception):
+                    self.get_poe2_leagues_button.setEnabled(True)
+        except (RuntimeError, TypeError, ValueError, settings.ValidationError, OSError):
+            logger.exception("Failed to re-enable league fetch button")
 
 
 class KeyOrKeyCodeValidator(QValidator):

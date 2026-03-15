@@ -130,14 +130,14 @@ def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) ->
                 POE1_CURRENCY_API_URL,
                 params={"league": league, "type": "Currency"},
                 headers=headers,
-                timeout=10,
+                timeout=5,
             )
         elif game == 2:  # noqa: PLR2004
             response = requests.get(
                 POE2_CURRENCY_API_URL,
                 params={"league": league, "type": "Currency"},
                 headers=headers,
-                timeout=10,
+                timeout=5,
             )
         else:
             msg = f"Invalid game '{game}', must be 1 or 2"
@@ -189,13 +189,13 @@ def get_leagues(game: int) -> set[str] | None:
             response = requests.get(
                 POE1_LEAGUES_API_URL,
                 headers=headers,
-                timeout=10,
+                timeout=5,
             )
         elif game == 2:  # noqa: PLR2004
             response = requests.get(
                 POE2_LEAGUES_API_URL,
                 headers=headers,
-                timeout=10,
+                timeout=5,
             )
         else:
             msg = f"Invalid game '{game}', must be 1 or 2"

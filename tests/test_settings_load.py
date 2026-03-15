@@ -5,6 +5,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from yaml import SafeLoader, load
 
 
 def _import_settings_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
@@ -78,3 +79,26 @@ currency:
         importlib.import_module("poemarcut.settings")
     # ensure no partial-validation "must be in" warnings were emitted
     assert not any("must be in" in rec.getMessage() for rec in caplog.records)
+
+
+def test_non_mapping_yaml_is_replaced_with_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """If settings.yaml contains a non-mapping (e.g. list), defaults should be persisted."""
+    monkeypatch.chdir(tmp_path)
+    settings_file = tmp_path / "settings.yaml"
+    # Write a YAML list instead of the expected mapping
+    settings_file.write_text("[]\n")
+
+    # Import fresh so module-level manager runs in tmp cwd
+    if "poemarcut.settings" in sys.modules:
+        del sys.modules["poemarcut.settings"]
+    importlib.import_module("poemarcut.settings")
+
+    # The loader should have replaced the file with defaults (a mapping)
+    with settings_file.open() as f:
+        persisted = load(f, Loader=SafeLoader)
+
+    assert isinstance(persisted, dict)
+    # Basic keys should be present in the persisted defaults
+    assert "currency" in persisted
+    assert "keys" in persisted
+    assert "logic" in persisted

@@ -3,7 +3,6 @@
 Defines default settings and settings file location.
 """
 
-import copy
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -153,7 +152,8 @@ class CurrencySettings(BaseModel):
             ValidationError: If validation fails when the context manager exits.
 
         """
-        original_state = copy.deepcopy(self.model_dump())
+        # Capture a lightweight snapshot (model_dump returns a fresh dict).
+        original_state = self.model_dump()
 
         original_validate_assignment = self.model_config.get("validate_assignment", True)
         self.model_config["validate_assignment"] = False
@@ -163,11 +163,12 @@ class CurrencySettings(BaseModel):
             self.model_config["validate_assignment"] = original_validate_assignment
 
         try:
-            validated = self.__class__.model_validate(self.model_dump())
-            validated_state = dict(validated.model_dump())
-            for k, v in validated_state.items():
+            # Re-validate by constructing a fresh instance from the current dump.
+            validated = self.__class__(**self.model_dump())
+            for k, v in validated.model_dump().items():
                 setattr(self, k, v)
         except (ValidationError, TypeError, ValueError):
+            # Restore the original state on failure.
             for k, v in original_state.items():
                 setattr(self, k, v)
             raise
@@ -180,8 +181,8 @@ class CurrencySettings(BaseModel):
             CurrencySettings: Self, potentially mutated to correct leagues.
 
         """
-        poe1 = list(self.poe1leagues or [])
-        poe2 = list(self.poe2leagues or [])
+        poe1 = self.poe1leagues or set()
+        poe2 = self.poe2leagues or set()
 
         if self.active_game == 1 and self.active_league not in poe1:
             if not poe1:
@@ -189,18 +190,51 @@ class CurrencySettings(BaseModel):
                 msg = f"No PoE1 leagues defined, setting active league '{self.active_league}' as the only PoE1 league."
                 logger.warning(msg)
                 return self
-            msg = f"'{self.active_league}' must be in {poe1}, setting active league to '{poe1[0]}'."
+            msg = f"'{self.active_league}' must be in {poe1}, setting active league to '{next(iter(poe1))}'."
             logger.warning(msg)
-            self.active_league = poe1[0]
+            self.active_league = next(iter(poe1))
         if self.active_game == 2 and self.active_league not in poe2:  # noqa: PLR2004
             if not poe2:
                 self.poe2leagues = {self.active_league}
                 msg = f"No PoE2 leagues defined, setting active league '{self.active_league}' as the only PoE2 league."
                 logger.warning(msg)
                 return self
-            msg = f"'{self.active_league}' must be in {poe2}, setting active league to '{poe2[0]}'."
+            msg = f"'{self.active_league}' must be in {poe2}, setting active league to '{next(iter(poe2))}'."
             logger.warning(msg)
-            self.active_league = poe2[0]
+            self.active_league = next(iter(poe2))
+        return self
+
+    @model_validator(mode="after")
+    def ensure_leagues_nonempty(self) -> "CurrencySettings":
+        """Ensure `poe1leagues` and `poe2leagues` are never empty.
+
+        If a league set is empty, prefer to set it to `active_league` when
+        available; otherwise fall back to well-known defaults.
+
+        Returns:
+            CurrencySettings: self, potentially mutated.
+
+        """
+        for field in ("poe1leagues", "poe2leagues"):
+            val = getattr(self, field) or set()
+            if not val:
+                active = getattr(self, "active_league", None)
+                # Only use active_league for the matching active_game.
+                if active and (
+                    (field == "poe1leagues" and self.active_game == 1)
+                    or (field == "poe2leagues" and self.active_game == 2)  # noqa: PLR2004
+                ):
+                    setattr(self, field, {active})
+                    logger.warning(
+                        "No %s defined; setting to active_league %r for active_game %s", field, active, self.active_game
+                    )
+                else:
+                    # Use the field's declared default by instantiating a fresh
+                    # CurrencySettings and reading the attribute. This keeps the
+                    # fallback in sync with the Field default_factory above.
+                    defaults = CurrencySettings()
+                    setattr(self, field, getattr(defaults, field))
+                    logger.warning("No %s defined; resetting to model default values", field)
         return self
 
     @model_validator(mode="after")
@@ -315,6 +349,10 @@ class SettingsManager(QObject):
                     raw = load(f, Loader=SafeLoader)
                 except (YAMLError, ValidationError):
                     logger.exception("Error parsing settings YAML; using defaults")
+                    try:
+                        self.set_settings(default)
+                    except Exception:
+                        logger.exception("Failed to persist default settings after parse error")
                     return default
         except FileNotFoundError:
             logger.warning("Settings file not found, using default settings and creating settings file")
@@ -323,6 +361,10 @@ class SettingsManager(QObject):
 
         if not isinstance(raw, dict):
             logger.warning("Settings file did not contain a mapping; using defaults")
+            try:
+                self.set_settings(default)
+            except Exception:
+                logger.exception("Failed to persist default settings for non-mapping YAML")
             return default
 
         # Section handlers: (ModelClass, default_instance)
@@ -404,6 +446,10 @@ class SettingsManager(QObject):
             )
         except (ValidationError, TypeError, ValueError):
             logger.exception("Failed to compose final PoEMSettings, falling back to defaults")
+            try:
+                self.set_settings(default)
+            except Exception:
+                logger.exception("Failed to persist default settings after final composition failure")
             return default
 
         return settings
@@ -427,16 +473,27 @@ class SettingsManager(QObject):
         )
 
         with SETTINGS_FILE.open("w") as f:
-            # Serialize the settings to a plain mapping and write YAML using PyYAML.
-            # Pydantic's `model_dump()` may produce lists for `set` fields; ensure
-            # the league fields are actual `set` instances so our SafeDumper will
-            # tag them with `!set` and they round-trip on load.
-            data = new_settings.model_dump()
+            # Serialize the validated settings to a plain mapping and write YAML
+            # using PyYAML. Use `self._settings` which was reconstructed above
+            # (and therefore validated) rather than the incoming
+            # `new_settings` which may have bypassed validation via
+            # `model_construct`.
+            data = self._settings.model_dump()
             currency_section = data.get("currency", {}) or {}
+
+            # Ensure league fields are persisted as non-empty sets. If the
+            # current value is empty (or an empty list), replace it with the
+            # model default to avoid writing empty sequences/sets to disk.
+            defaults = CurrencySettings()
             for field in ("poe1leagues", "poe2leagues"):
                 val = currency_section.get(field)
                 if isinstance(val, list):
-                    currency_section[field] = set(val)
+                    val = set(val)
+                # Normalize falsy/empty values to the model default
+                if not val:
+                    val = getattr(defaults, field)
+                currency_section[field] = val
+
             data["currency"] = currency_section
             dump(data, f, sort_keys=False, Dumper=SafeDumper)
 
