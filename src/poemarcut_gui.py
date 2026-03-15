@@ -489,6 +489,12 @@ class PoEMarcutGUI(QMainWindow):
         p1c_list_layout.addWidget(self.p1c_list_widget)
         middle_layout.addLayout(p1c_list_layout)
 
+        # poe1 currencies button
+        self.add_poe1_currency_button: QPushButton = QPushButton("Add PoE1 currency...")
+        self.add_poe1_currency_button.setToolTip("Add a PoE1 currency to the conversion list")
+        self.add_poe1_currency_button.clicked.connect(self.add_poe1_currency)
+        middle_layout.addWidget(self.add_poe1_currency_button)
+
         # poe2currencies field
         p2c_list_layout: QVBoxLayout = QVBoxLayout()
         p2c_setting_label: QLabel = QLabel("PoE2 currencies")
@@ -504,13 +510,8 @@ class PoEMarcutGUI(QMainWindow):
         p2c_list_layout.addWidget(self.p2c_list_widget)
         middle_layout.addLayout(p2c_list_layout)
 
-        # poe1 currencies button
-        self.add_poe1_currency_button: QPushButton = QPushButton("Add PoE1 currency")
-        self.add_poe1_currency_button.setToolTip("Add a PoE1 currency to the conversion list")
-        self.add_poe1_currency_button.clicked.connect(self.add_poe1_currency)
-        middle_layout.addWidget(self.add_poe1_currency_button)
         # poe2 currencies button
-        self.add_poe2_currency_button: QPushButton = QPushButton("Add PoE2 currency")
+        self.add_poe2_currency_button: QPushButton = QPushButton("Add PoE2 currency...")
         self.add_poe2_currency_button.setToolTip("Add a PoE2 currency to the conversion list")
         self.add_poe2_currency_button.clicked.connect(self.add_poe2_currency)
         middle_layout.addWidget(self.add_poe2_currency_button)
@@ -552,6 +553,12 @@ class PoEMarcutGUI(QMainWindow):
         p1l_list_layout.addWidget(self.p1l_list_widget)
         rightthird_layout.addLayout(p1l_list_layout)
 
+        # poe1 leagues button
+        self.get_poe1_leagues_button: QPushButton = QPushButton("Get PoE1 leagues")
+        self.get_poe1_leagues_button.setToolTip("Replace the PoE1 leagues with the list from GGG")
+        self.get_poe1_leagues_button.clicked.connect(self.get_poe1_leagues)
+        rightthird_layout.addWidget(self.get_poe1_leagues_button)
+
         # poe2leagues field
         p2l_list_layout: QVBoxLayout = QVBoxLayout()
         p2l_setting_label: QLabel = QLabel("PoE2 leagues")
@@ -567,13 +574,8 @@ class PoEMarcutGUI(QMainWindow):
         p2l_list_layout.addWidget(self.p2l_list_widget)
         rightthird_layout.addLayout(p2l_list_layout)
 
-        # poe1 leagues button
-        self.get_poe1_leagues_button: QPushButton = QPushButton("Get PoE1 leagues...")
-        self.get_poe1_leagues_button.setToolTip("Replace the PoE1 leagues with the list from GGG")
-        self.get_poe1_leagues_button.clicked.connect(self.get_poe1_leagues)
-        rightthird_layout.addWidget(self.get_poe1_leagues_button)
         # poe2 leagues button
-        self.get_poe2_leagues_button: QPushButton = QPushButton("Get PoE2 leagues...")
+        self.get_poe2_leagues_button: QPushButton = QPushButton("Get PoE2 leagues")
         self.get_poe2_leagues_button.setToolTip("Replace the PoE2 leagues with the list from GGG")
         self.get_poe2_leagues_button.clicked.connect(self.get_poe2_leagues)
         rightthird_layout.addWidget(self.get_poe2_leagues_button)
