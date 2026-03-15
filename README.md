@@ -10,10 +10,10 @@ Instead, PoEMarcut assists you in quickly adjusting items downward. Repeat next 
 ## Usage
 1. Run `poemarcut`. It now has a GUI! (cli available from source)
 2. Hover your mouse cursor over an item in a merchant tab.
-3. Press `F1` (default) to copy the currency type from the item (optional). NEW option!
+3. Press `F1` (default) to copy the currency type from the item (optional, only necessary if you want to capture the currency type).
 4. Press `F2` (default) or `right-click` to open the item price dialog.
 5. Press `F3` (default) to adjust the price text downward by 10% (default) and close the dialog.
-   NEW! F3 will change to the next-lowest configured currency when the current amount is 1 or more than the max_discount.
+   NEW! F3 will change to the next-lowest configured currency when the current amount is 1 or max_discount is exceeded.
    
 Press `F6` (default) to disable hotkeys if desired. Hotkeys can be toggled from the GUI. (F6 exits in CLI)
 
@@ -48,7 +48,7 @@ Inspired by the proof-of-concept by [@nickycakes](https://github.com/nickycakes/
 ## Advanced
 
 ### Running from the command line
-Recommend running with `poetry`, eg `poetry run python poemarcut.py`
+Recommend running with `poetry`, eg `poetry run python poemarcut_gui.py`
 
 - Download the repository via one of the options in the green Code button on Github (zip, clone, etc).
 
