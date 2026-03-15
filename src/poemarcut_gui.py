@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from poemarcut import constants, currency, keyboard, settings, update
+from poemarcut import __version__, constants, currency, keyboard, settings, update
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ class PoEMarcutGUI(QMainWindow):
         self.pin_checkbox.stateChanged.connect(self.toggle_always_on_top)
         main_layout.addWidget(self.pin_checkbox, 0, 2, 1, 1)
 
-        self.github_update_label: QLabel = QLabel("")
+        self.github_update_label: QLabel = QLabel(f"v{__version__}")
         main_layout.addWidget(self.github_update_label, 1, 2, 1, 1)
 
         league_widget: QWidget = QWidget()
