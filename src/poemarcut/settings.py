@@ -354,7 +354,7 @@ class SettingsManager(QObject):
                                 continue
                             setattr(current, field_name, val)
                 except (ValidationError, TypeError, ValueError):
-                    logger.warning("Invalid values in settings.%s; keeping defaults", name)
+                    logger.warning("Invalid values in settings.%s; falling back to defaults", name)
                     current = default_instance
             else:
                 # Fall back to per-field trial instantiation for models without delay_validation
@@ -369,7 +369,7 @@ class SettingsManager(QObject):
                         current = cls(**trial)
                         current_dict = current.model_dump()
                     except (ValidationError, TypeError, ValueError):
-                        logger.warning("Invalid value for %s.%s: %r; keeping default", name, field_name, val)
+                        logger.warning("Invalid value for %s.%s: %r; falling back to default", name, field_name, val)
 
             validated[name] = current
 
@@ -386,7 +386,7 @@ class SettingsManager(QObject):
                 else:
                     cleaned[name] = cls(**(candidate or {}))
             except (ValidationError, TypeError, ValueError):
-                logger.warning("Invalid values in finalized settings.%s; using defaults", name)
+                logger.warning("Invalid values in finalized settings.%s; falling back to defaults", name)
                 cleaned[name] = default_instance
 
         try:
