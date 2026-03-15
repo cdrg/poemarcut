@@ -3,7 +3,7 @@ You log in to PoE for the day and you have a bunch of unsold items in your merch
 
 Are you going to price check every single one of them again? No way, total waste of time.
 
-Instead, PoEMarcut assists you in quickly adjusting items downward. Repeat next time you log on until items sell or they reach nothing and you vendor them.
+Instead, PoEMarcut assists you in quickly adjusting items downward. Press F2+F3 on each item. Repeat next time you log on until items sell or they reach nothing and you vendor them.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I7ROZFD) / [![patreon](https://github.com/user-attachments/assets/d52158fe-389c-446e-9054-867f88c5462e)](https://patreon.com/cdrpt) / [![discord](https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/66e3d74e9607e61eeec9c91b_Logo.svg)](https://discord.gg/gRMjT5gVms)
 
