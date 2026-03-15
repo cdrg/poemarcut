@@ -16,6 +16,7 @@ from poemarcut import constants, currency, settings
 from poemarcut.item import Item
 from poemarcut.logic import (
     compute_discounted_price_and_actual,
+    convert_and_compute_price,
     parse_int_price,
 )
 
@@ -411,38 +412,37 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                         and last_cur_type in currencies
                         and last_cur_type != list(currencies)[-1]
                     ):
-                        next_cur_type = list(currencies)[list(currencies).index(last_cur_type) + 1]
-                        # convert the price as the equivalent amount of the next currency type
-                        try:
-                            exchange_rate: float = currency.get_exchange_rate(
+                        # Ensure max_actual_discount is respected but apply discount_percent otherwise when possible.
+                        amount_units = int(last_price or copied_price)
+
+                        def _get_rate(*, from_currency: str, to_currency: str) -> float:
+                            return currency.get_exchange_rate(
                                 game=game,
                                 league=league,
-                                from_currency=last_cur_type,
-                                to_currency=next_cur_type,
+                                from_currency=from_currency,
+                                to_currency=to_currency,
                                 autoupdate=settings_manager.settings.currency.autoupdate,
                             )
-                        except LookupError:
-                            logger.error(  # noqa: TRY400
-                                "Failed to get exchange rate for game %i league %s from %s to %s. Price not adjusted.",
-                                game,
-                                league,
-                                last_cur_type,
-                                next_cur_type,
+
+                        converted_price, converted_currency, converted_actual = convert_and_compute_price(
+                            original_units=amount_units,
+                            last_cur_type=last_cur_type,
+                            currencies=currencies,
+                            discount_percent=discount_percent,
+                            max_actual_discount=max_actual_discount,
+                            get_exchange_rate=_get_rate,
+                        )
+
+                        if converted_price is None:
+                            logger.info(
+                                "Unable to find a conversion path that respects max_actual_discount %.2f%%. Price not adjusted.",
+                                max_actual_discount,
                             )
-                            return True  # do nothing if exchange rate retrieval fails
-                        # update copied_price to the converted equivalent and recompute discount
-                        copied_price = int(exchange_rate)
-                        discounted_price_candidate, actual_discount = compute_discounted_price_and_actual(
-                            copied_price, discount_percent
-                        )
-                        logger.info(
-                            "Price is %d %s, converting to equivalent of %d %s based on exchange rate %.2f",
-                            last_price,
-                            last_cur_type,
-                            copied_price,
-                            next_cur_type,
-                            exchange_rate,
-                        )
+                            return True
+
+                        discounted_price_candidate = converted_price
+                        actual_discount = converted_actual
+                        next_cur_type = converted_currency
                     elif copied_price == 1:
                         logger.info(
                             "Price is 1 %s, but cannot convert to next currency. Either currency type is unknown, not in the list of convertible currencies, or is the final currency.",

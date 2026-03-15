@@ -6,6 +6,7 @@ interactions and side effects.
 """
 
 import math
+from collections.abc import Callable
 
 
 def parse_int_price(raw: str) -> int:
@@ -64,3 +65,105 @@ def next_currency_if_needed(
         idx = currencies.index(last_cur_type)
         return currencies[idx + 1]
     return None
+
+
+def convert_and_compute_price(  # noqa: C901, PLR0911, PLR0913
+    original_units: int,
+    last_cur_type: str | None,
+    currencies: list[str],
+    discount_percent: int,
+    max_actual_discount: int,
+    get_exchange_rate: Callable[..., float],
+) -> tuple[int | None, str | None, float]:
+    """Convert down the currency chain to find a valid discounted price.
+
+    Attempt conversions until a price can be computed that respects
+    `max_actual_discount` while applying at least `discount_percent` when
+    possible.
+
+    Args:
+        original_units: number of units in the original currency (e.g. 2 divines)
+        last_cur_type: the original currency type string
+        currencies: ordered list of currencies from highest to lowest
+        discount_percent: minimum discount percent to apply
+        max_actual_discount: maximum allowed actual discount percent
+        get_exchange_rate: callable used to fetch exchange rates. Signature
+            should accept keyword args `from_currency` and `to_currency` and
+            return a float rate.
+
+    Returns:
+        A tuple (discounted_price_or_None, final_currency_or_None, actual_percent)
+        If no satisfactory conversion exists the first two elements are None
+        and `actual_percent` contains the last observed actual discount.
+
+    """
+    if original_units <= 0:
+        msg = "original_units must be > 0"
+        raise ValueError(msg)
+
+    # Helper to compute discount and actual percent for a given integer price
+    def _calc(price: int, percent: int) -> tuple[int, float]:
+        return compute_discounted_price_and_actual(price, percent)
+
+    # Start with no conversion
+    current_currency = last_cur_type
+    currencies_list = list(currencies)
+    # Use original units when converting down the chain so rounding doesn't
+    # compound across steps.
+    units = int(original_units)
+    cumulative_rate = 1.0
+
+    # initial price in the same currency
+    price = units
+    discounted, actual = _calc(price, discount_percent)
+    if actual <= float(max_actual_discount):
+        return discounted, current_currency, actual
+
+    # If the preferred discount is too high due to integer rounding,
+    # fall back to the configured maximum allowed actual discount.
+    if discount_percent != max_actual_discount:
+        discounted, actual = _calc(price, max_actual_discount)
+        if actual <= float(max_actual_discount):
+            return discounted, current_currency, actual
+
+    # Try converting down the chain until we either succeed or run out of
+    # currencies.
+    if not current_currency or current_currency not in currencies_list:
+        return None, None, actual
+
+    idx = currencies_list.index(current_currency)
+    while idx < len(currencies_list) - 1:
+        next_idx = idx + 1
+        next_currency = currencies_list[next_idx]
+        try:
+            rate = get_exchange_rate(from_currency=current_currency, to_currency=next_currency)
+        except (KeyError, ValueError, TypeError):
+            return None, None, actual
+
+        cumulative_rate *= float(rate)
+        price = int(units * cumulative_rate)
+
+        if price <= 0:
+            current_currency = next_currency
+            idx = next_idx
+            continue
+
+        # Try preferred discount first for this converted price.
+        discounted, actual = _calc(price, discount_percent)
+
+        # If the computed actual is within the allowed maximum, we're done.
+        if actual <= float(max_actual_discount):
+            return discounted, next_currency, actual
+
+        # Otherwise, try using max allowed actual discount as fallback.
+        if discount_percent != max_actual_discount:
+            discounted, actual = _calc(price, max_actual_discount)
+            if actual <= float(max_actual_discount):
+                return discounted, next_currency, actual
+
+        # advance to next currency in chain
+        current_currency = next_currency
+        idx = next_idx
+
+    # exhausted conversion chain without finding a satisfactory price
+    return None, None, actual
