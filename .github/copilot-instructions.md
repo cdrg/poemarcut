@@ -1,0 +1,1 @@
+Always run Python commands and scripts using poetry run or within the poetry shell environment.
