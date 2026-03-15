@@ -325,21 +325,23 @@ class PoEMarcutGUI(QMainWindow):
         self.side_settings_layout: QHBoxLayout = QHBoxLayout()
 
         ### left panel of settings
-        leftthird_layout: QVBoxLayout = QVBoxLayout()
+        leftthird_layout: QGridLayout = QGridLayout()
+        row_idx = 0
+
         ## set up components for Keys settings fields
         keys_settings: settings.KeySettings = settings_man.settings.keys
         keys_settings_header: QLabel = QLabel("Keys settings")
         keys_settings_header.setStyleSheet(poe_header_style)
-        leftthird_layout.addWidget(keys_settings_header)
+        leftthird_layout.addWidget(keys_settings_header, row_idx, 0, 1, 2)
+        row_idx += 1
+
         # loop through all key fields
         # store line edits so we can update them when settings change
         self.key_lineedits: dict[str, QLineEdit] = {}
         for field_name, field_value in keys_settings:
-            row_layout: QHBoxLayout = QHBoxLayout()
             field_info = keys_settings.__class__.model_fields[field_name]
             setting_label: QLabel = QLabel(f"{field_name}:".replace("_", " "))
             setting_label.setToolTip(field_info.description or "")
-            row_layout.addWidget(setting_label, stretch=1)
 
             lineedit: QLineEdit = QLineEdit(str(field_value))
             self.key_validator = KeyOrKeyCodeValidator()
@@ -347,21 +349,22 @@ class PoEMarcutGUI(QMainWindow):
             # update settings when the user finishes editing
             lineedit.editingFinished.connect(partial(self.process_qle_text, "Keys", field_name, lineedit))
             self.key_lineedits[field_name] = lineedit
-            row_layout.addWidget(lineedit)
-            leftthird_layout.addLayout(row_layout)
+
+            leftthird_layout.addWidget(setting_label, row_idx, 0)
+            leftthird_layout.addWidget(lineedit, row_idx, 1)
+            row_idx += 1
 
         ## set up components for Logic settings fields
         logic_settings: settings.LogicSettings = settings_man.settings.logic
         logic_settings_header: QLabel = QLabel("Logic settings")
         logic_settings_header.setStyleSheet(poe_header_style)
-        leftthird_layout.addWidget(logic_settings_header)
+        leftthird_layout.addWidget(logic_settings_header, row_idx, 0, 1, 2)
+        row_idx += 1
 
         # discount percent field (user-friendly replacement for adjustment factor)
-        af_row_layout: QHBoxLayout = QHBoxLayout()
         af_setting_label: QLabel = QLabel("Discount %")
         af_field_info = logic_settings.__class__.model_fields.get("discount_percent")
         af_setting_label.setToolTip((af_field_info.description if af_field_info is not None else "") or "")
-        af_row_layout.addWidget(af_setting_label, stretch=1)
         self.discount_percent_le: QLineEdit = QLineEdit(str(logic_settings.discount_percent))
         # Percent validator: 1-99 (integer)
         self.discount_percent_le.setValidator(QIntValidator(1, 99, parent=self.discount_percent_le))
@@ -371,15 +374,14 @@ class PoEMarcutGUI(QMainWindow):
         self.discount_percent_le.editingFinished.connect(
             partial(self.process_qle_int, "Logic", "discount_percent", self.discount_percent_le)
         )
-        af_row_layout.addWidget(self.discount_percent_le, stretch=1)
-        leftthird_layout.addLayout(af_row_layout)
+        leftthird_layout.addWidget(af_setting_label, row_idx, 0)
+        leftthird_layout.addWidget(self.discount_percent_le, row_idx, 1)
+        row_idx += 1
 
         # max actual discount field (percent)
-        maf_row_layout: QHBoxLayout = QHBoxLayout()
         maf_setting_label: QLabel = QLabel("Max discount")
         maf_field_info = logic_settings.__class__.model_fields.get("max_actual_discount")
         maf_setting_label.setToolTip((maf_field_info.description if maf_field_info is not None else "") or "")
-        maf_row_layout.addWidget(maf_setting_label, stretch=1)
         self.max_actual_discount_le: QLineEdit = QLineEdit(str(logic_settings.max_actual_discount))
         # Percent validator: 1-99 (integer)
         self.max_actual_discount_le.setValidator(QIntValidator(1, 99, parent=self.max_actual_discount_le))
@@ -389,50 +391,52 @@ class PoEMarcutGUI(QMainWindow):
         self.max_actual_discount_le.editingFinished.connect(
             partial(self.process_qle_int, "Logic", "max_actual_discount", self.max_actual_discount_le)
         )
-        maf_row_layout.addWidget(self.max_actual_discount_le, stretch=1)
-        leftthird_layout.addLayout(maf_row_layout)
+        leftthird_layout.addWidget(maf_setting_label, row_idx, 0)
+        leftthird_layout.addWidget(self.max_actual_discount_le, row_idx, 1)
+        row_idx += 1
 
         # enter after calcprice field
-        eac_row_layout: QHBoxLayout = QHBoxLayout()
-        eac_setting_label: QLabel = QLabel("Enter after calcprice")
+        eac_setting_label: QLabel = QLabel("Press enter")
         eac_field_info = logic_settings.__class__.model_fields["enter_after_calcprice"]
         eac_setting_label.setToolTip(eac_field_info.description or "")
-        eac_row_layout.addWidget(eac_setting_label, stretch=1)
         self.enter_after_cb: QCheckBox = QCheckBox("")
         self.enter_after_cb.setChecked(logic_settings.enter_after_calcprice)
         self.enter_after_cb.stateChanged.connect(
             partial(self.process_qcb, "Logic", "enter_after_calcprice", self.enter_after_cb)
         )
-        eac_row_layout.addWidget(self.enter_after_cb, stretch=1)
-        leftthird_layout.addLayout(eac_row_layout)
+        leftthird_layout.addWidget(eac_setting_label, row_idx, 0)
+        leftthird_layout.addWidget(self.enter_after_cb, row_idx, 1)
+        row_idx += 1
 
-        leftthird_layout.addStretch()
+        # add some vertical stretch by setting row stretch for the following rows
+        leftthird_layout.setRowStretch(row_idx, 1)
+        row_idx += 1
 
         currency_settings: settings.CurrencySettings = settings_man.settings.currency
 
         # active game field
-        ag_row_layout: QHBoxLayout = QHBoxLayout()
         ag_setting_label: QLabel = QLabel("Active game")
         ag_field_info = currency_settings.__class__.model_fields["active_game"]
         ag_setting_label.setToolTip(ag_field_info.description or "")
-        ag_row_layout.addWidget(ag_setting_label, stretch=1)
         self.active_game_le: QLineEdit = QLineEdit(str(currency_settings.active_game))
         self.active_game_le.setReadOnly(True)
-        ag_row_layout.addWidget(self.active_game_le, stretch=1)
-        leftthird_layout.addLayout(ag_row_layout)
+        leftthird_layout.addWidget(ag_setting_label, row_idx, 0)
+        leftthird_layout.addWidget(self.active_game_le, row_idx, 1)
+        row_idx += 1
 
         # active league field
-        al_row_layout: QHBoxLayout = QHBoxLayout()
         al_setting_label: QLabel = QLabel("Active league")
         al_field_info = currency_settings.__class__.model_fields["active_league"]
         al_setting_label.setToolTip(al_field_info.description or "")
-        al_row_layout.addWidget(al_setting_label, stretch=1)
         self.active_league_le: QLineEdit = QLineEdit(str(currency_settings.active_league))
         self.active_league_le.setReadOnly(True)
-        al_row_layout.addWidget(self.active_league_le, stretch=1)
-        leftthird_layout.addLayout(al_row_layout)
+        leftthird_layout.addWidget(al_setting_label, row_idx, 0)
+        row_idx += 1
+        leftthird_layout.addWidget(self.active_league_le, row_idx, 0)
+        row_idx += 1
 
-        leftthird_layout.addStretch()
+        # final stretch so the left panel doesn't collapse
+        leftthird_layout.setRowStretch(row_idx, 1)
         self.side_settings_layout.addLayout(leftthird_layout)
 
         ### middle panel of settings
