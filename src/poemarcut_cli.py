@@ -35,11 +35,11 @@ def print_last_updated(game: int, league: str, file_mtime: float) -> None:
     )
 
 
-def print_poe1_currency_suggestions(adjustment_factor: float, data: dict) -> None:
+def print_poe1_currency_suggestions(discount_percent: int, data: dict) -> None:
     """Print suggested new currency prices for PoE1 based on current poe.ninja currency values.
 
     Args:
-        adjustment_factor (float): The factor by which the price is being adjusted.
+        discount_percent (float): The discount percent to apply (0-100).
         data (dict): The currency data fetched from poe.ninja.
 
     Returns:
@@ -59,29 +59,29 @@ def print_poe1_currency_suggestions(adjustment_factor: float, data: dict) -> Non
             print("Error: Invalid data, could not determine currency suggestions for PoE1.", file=sys.stderr)
             return
 
-        div_chaos_adj: float = 1 / chaos_div_val * adjustment_factor
+        div_chaos_adj: float = 1 / chaos_div_val * (1.0 - (discount_percent / 100.0))
         print(f"{BOLD}PoE1{RESET} suggested new currency setting if current setting is 1, based on current values:")
-        print(f"{adjustment_factor}x 1 Divine Orb")
+        print(f"{discount_percent:.2f}% off ({(1.0 - discount_percent / 100.0):.2f}x) 1 Divine Orb")
         print(f" = {int(div_chaos_adj)} Chaos Orb ({div_chaos_adj:.2f})")
-        print(f"{adjustment_factor}x 1 Chaos Orb")
+        print(f"{(1.0 - discount_percent / 100.0):.2f}x 1 Chaos Orb")
         print(" = Just vendor it already!")
     else:
         print("Error: Invalid data, could not determine currency suggestions for PoE1.", file=sys.stderr)
 
 
-def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> None:
+def print_poe2_currency_suggestions(discount_percent: int, data: dict) -> None:
     """Print suggested new currency prices for PoE2 based on current poe.ninja currency values.
 
     Some calculations are inverted depending on if poe.ninja provides "div per X" or "X per div".
 
     Args:
-        adjustment_factor (float): The factor by which the price is being adjusted.
+        discount_percent (float): The discount percent to apply (0-100).
         data (dict): The currency data fetched from poe.ninja.
 
     Returns:
         None
 
-    """
+    """  # Compute multiplier from discount_percent inline where needed
     if (
         "lines" in data
         and "core" in data
@@ -96,27 +96,27 @@ def print_poe2_currency_suggestions(adjustment_factor: float, data: dict) -> Non
             "primaryValue"
         ]
 
-        div_annul_adj: float = 1 / annul_div_val * adjustment_factor
-        div_chaos_adj: float = 1 / chaos_div_val * adjustment_factor
-        div_exalt_adj: float = 1 / exalt_div_val * adjustment_factor
-        annul_chaos_adj: float = 1 / chaos_div_val * annul_div_val * adjustment_factor
-        annul_exalt_adj: float = 1 / exalt_div_val * annul_div_val * adjustment_factor
-        chaos_exalt_adj: float = 1 / exalt_div_val * chaos_div_val * adjustment_factor
+        div_annul_adj: float = 1 / annul_div_val * (1.0 - (discount_percent / 100.0))
+        div_chaos_adj: float = 1 / chaos_div_val * (1.0 - (discount_percent / 100.0))
+        div_exalt_adj: float = 1 / exalt_div_val * (1.0 - (discount_percent / 100.0))
+        annul_chaos_adj: float = 1 / chaos_div_val * annul_div_val * (1.0 - (discount_percent / 100.0))
+        annul_exalt_adj: float = 1 / exalt_div_val * annul_div_val * (1.0 - (discount_percent / 100.0))
+        chaos_exalt_adj: float = 1 / exalt_div_val * chaos_div_val * (1.0 - (discount_percent / 100.0))
         print(f"{BOLD}PoE2{RESET} suggested new currency setting if current setting is 1, based on current values:")
-        print(f"{adjustment_factor}x 1 Divine Orb")
+        print(f"{discount_percent:.2f}% off ({(1.0 - discount_percent / 100.0):.2f}x) 1 Divine Orb")
         print(f" = {int(div_annul_adj)} Orb of Annulment ({div_annul_adj:.2f})")
         print(f" = {int(div_chaos_adj)} Chaos Orb ({div_chaos_adj:.2f})")
         print(f" = {int(div_exalt_adj)} Exalted Orb ({div_exalt_adj:.2f})")
-        print(f"{adjustment_factor}x 1 Orb of Annulment")
+        print(f"{discount_percent:.2f}% off ({(1.0 - discount_percent / 100.0):.2f}x) 1 Orb of Annulment")
         print(f" = {int(annul_chaos_adj)} Chaos Orb ({annul_chaos_adj:.2f})")
         print(f" = {int(annul_exalt_adj)} Exalted Orb ({annul_exalt_adj:.2f})")
-        print(f"{adjustment_factor}x 1 Chaos Orb")
+        print(f"{discount_percent:.2f}% off ({(1.0 - discount_percent / 100.0):.2f}x) 1 Chaos Orb")
         print(
             f" = {int(chaos_exalt_adj)} Exalted Orb ({chaos_exalt_adj:.2f})",
             end="",
         )
         print()
-        print(f"{adjustment_factor}x 1 Exalted Orb")
+        print(f"{discount_percent:.2f}% off ({(1.0 - discount_percent / 100.0):.2f}x) 1 Exalted Orb")
         print(" = Just vendor it already!")
     else:
         print("Error: Invalid data, could not determine currency suggestions for PoE2.", file=sys.stderr)
@@ -186,11 +186,11 @@ def main() -> int:  # noqa: C901
 
     _print_instructions()
 
-    def _print_currency_suggestions(adjustment_factor: float) -> None:
+    def _print_currency_suggestions(discount_percent: int) -> None:
         """Fetch and print currency suggestions for supported games.
 
         Args:
-            adjustment_factor (float): Multiplier used to compute suggested prices.
+            discount_percent (float): Discount percent used to compute suggested prices.
 
         Returns:
             None
@@ -208,10 +208,10 @@ def main() -> int:  # noqa: C901
 
             # If data object is valid, print suggested currency values for case where current price is 1
             if game == 1 and "lines" in data and "core" in data and data["core"].get("primary"):
-                print_poe1_currency_suggestions(adjustment_factor=adjustment_factor, data=data)
+                print_poe1_currency_suggestions(discount_percent=discount_percent, data=data)
                 print()
             elif game == 2 and "lines" in data and "core" in data and data["core"].get("primary"):  # noqa: PLR2004
-                print_poe2_currency_suggestions(adjustment_factor=adjustment_factor, data=data)
+                print_poe2_currency_suggestions(discount_percent=discount_percent, data=data)
                 print()
             else:
                 print(f"Error: Could not retrieve currency suggestions for PoE{game}.", file=sys.stderr)
@@ -223,7 +223,7 @@ def main() -> int:  # noqa: C901
                 f"{BOLD}A newer version of PoEMarcut is available{RESET} at https://github.com/cdrg/poemarcut: {github_version} (you have {__version__})"
             )
 
-    _print_currency_suggestions(adjustment_factor=settings_man.settings.logic.adjustment_factor)
+    _print_currency_suggestions(discount_percent=settings_man.settings.logic.discount_percent)
 
     keyboard.start_listener(blocking=True)
 

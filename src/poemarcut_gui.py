@@ -11,9 +11,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import MappingProxyType
 
-from annotated_types import Gt, Lt
 from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QDoubleValidator, QFontDatabase, QIcon, QValidator
+from PyQt6.QtGui import QCloseEvent, QFontDatabase, QIcon, QIntValidator, QValidator
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -357,56 +356,40 @@ class PoEMarcutGUI(QMainWindow):
         logic_settings_header.setStyleSheet(poe_header_style)
         leftthird_layout.addWidget(logic_settings_header)
 
-        # adjustment factor field
+        # discount percent field (user-friendly replacement for adjustment factor)
         af_row_layout: QHBoxLayout = QHBoxLayout()
-        af_setting_label: QLabel = QLabel("Adjustment factor")
-        af_field_info = logic_settings.__class__.model_fields["adjustment_factor"]
-        af_setting_label.setToolTip(af_field_info.description or "")
+        af_setting_label: QLabel = QLabel("Discount %")
+        af_field_info = logic_settings.__class__.model_fields.get("discount_percent")
+        af_setting_label.setToolTip((af_field_info.description if af_field_info is not None else "") or "")
         af_row_layout.addWidget(af_setting_label, stretch=1)
-        self.adj_factor_le: QLineEdit = QLineEdit(str(logic_settings.adjustment_factor))
-        gt_val: float = float("-inf")
-        lt_val: float = float("inf")
-        for metadata in af_field_info.metadata:
-            if isinstance(metadata, Gt):
-                gt_val = float(str(metadata.gt))
-            elif isinstance(metadata, Lt):
-                lt_val = float(str(metadata.lt))
-        self.adj_factor_le.setValidator(
-            QDoubleValidator(bottom=gt_val, top=lt_val, decimals=2, parent=self.adj_factor_le)
+        self.discount_percent_le: QLineEdit = QLineEdit(str(logic_settings.discount_percent))
+        # Percent validator: 1-99 (integer)
+        self.discount_percent_le.setValidator(QIntValidator(1, 99, parent=self.discount_percent_le))
+        self.discount_percent_le.returnPressed.connect(
+            partial(self.process_qle_int, "Logic", "discount_percent", self.discount_percent_le)
         )
-        self.adj_factor_le.returnPressed.connect(
-            partial(self.process_qle_float, "Logic", "adjustment_factor", self.adj_factor_le)
+        self.discount_percent_le.editingFinished.connect(
+            partial(self.process_qle_int, "Logic", "discount_percent", self.discount_percent_le)
         )
-        self.adj_factor_le.editingFinished.connect(
-            partial(self.process_qle_float, "Logic", "adjustment_factor", self.adj_factor_le)
-        )
-        af_row_layout.addWidget(self.adj_factor_le, stretch=1)
+        af_row_layout.addWidget(self.discount_percent_le, stretch=1)
         leftthird_layout.addLayout(af_row_layout)
 
-        # min actual factor field
+        # max actual discount field (percent)
         maf_row_layout: QHBoxLayout = QHBoxLayout()
-        maf_setting_label: QLabel = QLabel("Min actual factor")
-        maf_field_info = logic_settings.__class__.model_fields["min_actual_factor"]
-        maf_setting_label.setToolTip(maf_field_info.description or "")
+        maf_setting_label: QLabel = QLabel("Max discount")
+        maf_field_info = logic_settings.__class__.model_fields.get("max_actual_discount")
+        maf_setting_label.setToolTip((maf_field_info.description if maf_field_info is not None else "") or "")
         maf_row_layout.addWidget(maf_setting_label, stretch=1)
-        self.min_actual_factor_le: QLineEdit = QLineEdit(str(logic_settings.min_actual_factor))
-        gt_val: float = float("-inf")
-        lt_val: float = float("inf")
-        for metadata in maf_field_info.metadata:
-            if isinstance(metadata, Gt):
-                gt_val = float(str(metadata.gt))
-            elif isinstance(metadata, Lt):
-                lt_val = float(str(metadata.lt))
-        self.min_actual_factor_le.setValidator(
-            QDoubleValidator(bottom=gt_val, top=lt_val, decimals=2, parent=self.min_actual_factor_le)
+        self.max_actual_discount_le: QLineEdit = QLineEdit(str(logic_settings.max_actual_discount))
+        # Percent validator: 1-99 (integer)
+        self.max_actual_discount_le.setValidator(QIntValidator(1, 99, parent=self.max_actual_discount_le))
+        self.max_actual_discount_le.returnPressed.connect(
+            partial(self.process_qle_int, "Logic", "max_actual_discount", self.max_actual_discount_le)
         )
-        self.min_actual_factor_le.returnPressed.connect(
-            partial(self.process_qle_float, "Logic", "min_actual_factor", self.min_actual_factor_le)
+        self.max_actual_discount_le.editingFinished.connect(
+            partial(self.process_qle_int, "Logic", "max_actual_discount", self.max_actual_discount_le)
         )
-        self.min_actual_factor_le.editingFinished.connect(
-            partial(self.process_qle_float, "Logic", "min_actual_factor", self.min_actual_factor_le)
-        )
-        maf_row_layout.addWidget(self.min_actual_factor_le, stretch=1)
+        maf_row_layout.addWidget(self.max_actual_discount_le, stretch=1)
         leftthird_layout.addLayout(maf_row_layout)
 
         # enter after calcprice field
@@ -738,6 +721,28 @@ class PoEMarcutGUI(QMainWindow):
         except (AttributeError, TypeError, settings.ValidationError):
             logger.exception("Failed to set float setting %s.%s", category, setting)
 
+    def process_qle_int(self, category: str, setting: str, qle: QLineEdit) -> None:
+        """Process input for a specific integer setting.
+
+        Args:
+            category (str): Settings category name.
+            setting (str): Settings field name to update.
+            qle (QLineEdit): The QLineEdit containing the new numeric text.
+
+        Returns:
+            None
+
+        """
+        try:
+            value = int(qle.text())
+            settings_obj = self.settings_manager.settings
+            setattr(getattr(settings_obj, category.lower()), setting.lower(), value)
+            self.settings_manager.set_settings(settings_obj)
+        except ValueError:
+            pass  # Invalid int input; ignore
+        except (AttributeError, TypeError, settings.ValidationError):
+            logger.exception("Failed to set int setting %s.%s", category, setting)
+
     def process_qcb(self, category: str, setting: str, checkbox: QCheckBox) -> None:
         """Process input for a specific boolean setting.
 
@@ -864,12 +869,12 @@ class PoEMarcutGUI(QMainWindow):
             None
 
         """
-        if setting == "adjustment_factor":
-            with QSignalBlocker(self.adj_factor_le):
-                self.adj_factor_le.setText(str(value))
-        elif setting == "min_actual_factor":
-            with QSignalBlocker(self.min_actual_factor_le):
-                self.min_actual_factor_le.setText(str(value))
+        if setting == "discount_percent":
+            with QSignalBlocker(self.discount_percent_le):
+                self.discount_percent_le.setText(str(value))
+        elif setting == "max_actual_discount":
+            with QSignalBlocker(self.max_actual_discount_le):
+                self.max_actual_discount_le.setText(str(value))
         elif setting == "enter_after_calcprice":
             with QSignalBlocker(self.enter_after_cb):
                 self.enter_after_cb.setChecked(bool(value))
@@ -1229,7 +1234,7 @@ class PoEMarcutGUI(QMainWindow):
 
             # Always insert an arrow row after the currency row (final or not)
             try:
-                adj: int = int((1 - self.settings_manager.settings.logic.min_actual_factor) * 100)
+                adj: int = int(self.settings_manager.settings.logic.max_actual_discount)
             except (AttributeError, TypeError, ValueError):
                 adj = 0
             arrow_text = "↓"
@@ -1253,11 +1258,11 @@ class PoEMarcutGUI(QMainWindow):
             # For non-final pairs, show the adjusted lower-currency value; for final, show 'vendor it'.
             if lower is not None and rate is not None:
                 try:
-                    adj_factor = self.settings_manager.settings.logic.adjustment_factor
-                    adj_discount: int = round((1 - float(adj_factor)) * 100)
-                    adj_value = adj_factor * float(rate)
+                    discount = float(self.settings_manager.settings.logic.discount_percent)
+                    adj_discount: int = round(discount)
+                    adj_value = (1.0 - (discount / 100.0)) * float(rate)
                     adj_text = f"{int(adj_value)} {lower}" if adj_value >= 1 else f"1 {lower}"
-                    adj_widget = self._make_currency_display_widget(f"x {adj_discount}% off =", adj_text)
+                    adj_widget = self._make_currency_display_widget(f"{adj_discount}% off =", adj_text)
                     adj_item = QListWidgetItem()
                     adj_item.setSizeHint(adj_widget.sizeHint())
                     adj_item.setFlags(Qt.ItemFlag.NoItemFlags)

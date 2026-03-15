@@ -74,17 +74,21 @@ class KeySettings(BaseModel):
 class LogicSettings(BaseModel):
     """Logic and calculation settings for price adjustments."""
 
-    adjustment_factor: float = Field(
-        default=0.9,
-        gt=0.01,
-        lt=2.0,
-        description="The factor by which to multiply the current price to get the new price. For example, 0.9 would discount the current price by 10%",
+    # User-facing value: discount percent (0-100). Stored in YAML as percent for clarity.
+    discount_percent: int = Field(
+        default=10,
+        ge=1,
+        le=99,
+        description="Discount percent to apply to the current price (10% off a price of 100 would result in 90)",
     )
-    min_actual_factor: float = Field(
-        default=0.5,
-        gt=0.01,
-        lt=2.0,
-        description="The minimum allowed actual adjustment factor. If the calculated adjustment factor is less than this, the price will not be adjusted",
+
+    # Maximum allowed discount percent (user-facing). For example, 50.0 means
+    # the price calculation will not apply discounts greater than 50%.
+    max_actual_discount: int = Field(
+        default=50,
+        ge=1,
+        le=99,
+        description="Maximum allowed discount percent. If the calculated discount would exceed this percentage, the price will be converted or not be adjusted",
     )
     enter_after_calcprice: bool = Field(
         default=True,

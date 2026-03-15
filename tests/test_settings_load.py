@@ -21,7 +21,7 @@ def test_missing_settings_creates_defaults(tmp_path: Path, monkeypatch: pytest.M
     assert (tmp_path / "settings.yaml").exists()
     sm = settings_mod.settings_manager
     s = sm.settings
-    assert s.logic.adjustment_factor == 0.9
+    assert s.logic.discount_percent == 10
 
 
 @pytest.mark.filterwarnings("ignore:Pydantic serializer warnings:UserWarning:pydantic.main")
@@ -50,9 +50,9 @@ currency:
         settings_mod = importlib.import_module("poemarcut.settings")
     sm = settings_mod.settings_manager
     s = sm.settings
-    # valid field applied, invalid field kept as default
-    assert s.logic.adjustment_factor == 0.85
-    assert s.logic.min_actual_factor == 0.5
+    # unknown legacy field should be ignored; invalid field kept as default
+    assert s.logic.discount_percent == 10
+    assert s.logic.max_actual_discount == 50
     # custom key applied
     assert s.keys.copyitem_key == "f9"
     # invalid currency mapping should cause currency section to keep defaults

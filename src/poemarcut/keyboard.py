@@ -14,6 +14,10 @@ from pynput.keyboard import Key, KeyCode, Listener
 
 from poemarcut import constants, currency, settings
 from poemarcut.item import Item
+from poemarcut.logic import (
+    compute_discounted_price_and_actual,
+    parse_int_price,
+)
 
 # pydirectinput uses Windows-only APIs at import-time; import only on Windows
 pydirectinput: Any | None = None
@@ -274,8 +278,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                         # skip invalid binding but keep listener running
                 _cached_key_strs.clear()
                 _cached_key_strs.update(key_strs)
-        adjustment_factor: float = settings_manager.settings.logic.adjustment_factor
-        min_actual_factor: float = settings_manager.settings.logic.min_actual_factor
+        discount_percent: int = settings_manager.settings.logic.discount_percent
+
+        max_actual_discount: int = settings_manager.settings.logic.max_actual_discount
         enter_after_calcprice: bool = settings_manager.settings.logic.enter_after_calcprice
         game: int = settings_manager.settings.currency.active_game
         league: str = settings_manager.settings.currency.active_league
@@ -362,14 +367,14 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 last_price, last_cur_type = _last_price, _last_type
 
             try:
+                raw_clip = pyperclip.paste()
                 try:
-                    # Get current price from clipboard. Strip any thousands separators (locale dependent).
-                    # Future: handle fractional values? which are supported in stash tabs but not merchant
-                    copied_price: int = int(pyperclip.paste().replace(",", "").replace(".", ""))
+                    # Parse current price from clipboard. Strip any thousands separators (locale dependent).
+                    copied_price: int = parse_int_price(raw_clip)
                 except ValueError:
                     logger.warning(
                         "Clipboard value '%s' is not a valid integer. Aborting price calculation.",
-                        pyperclip.paste(),
+                        raw_clip,
                     )
                     return True  # do nothing if clipboard value is not a valid int
 
@@ -392,10 +397,14 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     last_price = copied_price
                     last_cur_type = currencies[0] if currencies else None
 
-                actual_adj_factor: float = int(copied_price * adjustment_factor) / copied_price
+                # Compute integer discounted price and observed percent after integer rounding.
+                discounted_price_candidate, actual_discount = compute_discounted_price_and_actual(
+                    copied_price, discount_percent
+                )
                 next_cur_type: str | None = None
-                # if we can't go lower, because price is 1 or is low enough tha the discount would be too high
-                if copied_price == 1 or actual_adj_factor < min_actual_factor:
+                # if we can't go lower because price is 1 or the calculated percent discount
+                # exceeds the allowed maximum, bail out or try converting to the next currency
+                if copied_price == 1 or actual_discount > float(max_actual_discount):
                     # and if we know the copied currency type and it's in our list of convertible currencies and it's not the final currency
                     if (
                         last_cur_type is not None
@@ -404,7 +413,6 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     ):
                         next_cur_type = list(currencies)[list(currencies).index(last_cur_type) + 1]
                         # convert the price as the equivalent amount of the next currency type
-                        # get_exchange_rate returns a whole number if the more valuable currency is the first argument
                         try:
                             exchange_rate: float = currency.get_exchange_rate(
                                 game=game,
@@ -422,7 +430,11 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                                 next_cur_type,
                             )
                             return True  # do nothing if exchange rate retrieval fails
+                        # update copied_price to the converted equivalent and recompute discount
                         copied_price = int(exchange_rate)
+                        discounted_price_candidate, actual_discount = compute_discounted_price_and_actual(
+                            copied_price, discount_percent
+                        )
                         logger.info(
                             "Price is %d %s, converting to equivalent of %d %s based on exchange rate %.2f",
                             last_price,
@@ -437,25 +449,27 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                             last_cur_type or "unknown",
                         )
                         return True  # do nothing if parsed int is 1 and we do not know the currency type or it's the final type
-                    elif actual_adj_factor < min_actual_factor:
+                    elif actual_discount > float(max_actual_discount):
                         logger.info(
-                            "Calculated adjustment factor %.2f [trunc(%d*%.2f)/%d] is less than the minimum adjustment factor %.2f. Price not adjusted.",
-                            actual_adj_factor,
-                            last_price,
-                            adjustment_factor,
-                            last_price,
-                            min_actual_factor,
+                            "Calculated discount %.2f%% exceeds max allowed discount %.2f%%. Price not adjusted.",
+                            actual_discount,
+                            max_actual_discount,
                         )
-                        return True  # do nothing if the actual adjustment factor is less than the minimum allowed factor (enforce maximum discount)
+                        return True  # do nothing if the calculated discount exceeds the maximum allowed discount
 
-                # Calculate the new discounted price, rounding down (truncate) to ensure price always decreases
-                new_price: int = int(copied_price * adjustment_factor)
+                # Use the precomputed integer discounted price
+                new_price: int = discounted_price_candidate
 
                 # Small delay before pasting to ensure the price dialog is ready for input
                 time.sleep(0.1)
 
                 # Paste the new price from clipboard
-                logger.info("Pasting new price '%d', previous price was '%d'.", new_price, copied_price)
+                logger.info(
+                    "Pasting new price '%d', previous price was '%d'. (%.2f%%)",
+                    new_price,
+                    copied_price,
+                    actual_discount,
+                )
                 pyperclip.copy(str(new_price))
                 pyautogui.hotkey("ctrl", "v")
 

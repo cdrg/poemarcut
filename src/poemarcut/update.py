@@ -80,5 +80,5 @@ def is_github_update_available() -> tuple[bool, str | None]:
     if update_available:
         logger.info("GitHub update available: %s", github_version)
     else:
-        logger.info("No GitHub update available")
+        logger.info("Checked for update, none available.")
     return update_available, github_version

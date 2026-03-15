@@ -12,8 +12,8 @@ Instead, PoEMarcut assists you in quickly adjusting items downward. Repeat next 
 2. Hover your mouse cursor over an item in a merchant tab.
 3. Press `F1` (default) to copy the currency type from the item (optional). NEW option!
 4. Press `F2` (default) or `right-click` to open the item price dialog.
-5. Press `F3` (default) to adjust the price text downward by 0.9x (default) and close the dialog.
-   NEW! F3 will change to the next-lowest configured currency when the current amount is 1 or below the min_factor.
+5. Press `F3` (default) to adjust the price text downward by 10% (default) and close the dialog.
+   NEW! F3 will change to the next-lowest configured currency when the current amount is 1 or more than the max_discount.
    
 Press `F6` (default) to disable hotkeys if desired. Hotkeys can be toggled from the GUI. (F6 exits in CLI)
 
@@ -21,7 +21,7 @@ The new price is always rounded down (decimal is truncated), to ensure the price
 
 An existing price of `1` will be changed into the next lowest currency if configured.
 
-An optional setting `min_actual_factor` will prevent very low prices from being reduced further, eg `0.6` will prevent `2` from being reduced to `1` (0.5 actual, 0.6 minimum).
+An optional setting `max_actual_discount` will prevent very low prices from being reduced further, eg `40%` will prevent `2` from being reduced to `1` (50% actual, 40% maximum).
 
 A list of currency conversions is also displayed per current poe.ninja economy data.
 
