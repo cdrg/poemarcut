@@ -5,19 +5,32 @@ Defines default settings and settings file location.
 
 import copy
 import logging
-from collections.abc import Generator, Iterable
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
-from pydantic_yaml import parse_yaml_file_as, to_yaml_file
+from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator, model_validator
 from PyQt6.QtCore import QObject, pyqtSignal
-from yaml import YAMLError
+from yaml import SafeDumper, SafeLoader, YAMLError, dump, load
+from yaml.nodes import SequenceNode
 
 from poemarcut import constants, currency
 
 logger = logging.getLogger(__name__)
+
+
+def _yaml_represent_set(dumper: SafeDumper, data: set) -> SequenceNode:
+    return dumper.represent_sequence("!!python/set", list(data))
+
+
+def _yaml_construct_set(loader: SafeLoader, node: SequenceNode) -> set:
+    seq = loader.construct_sequence(node)
+    return set(seq)
+
+
+SafeDumper.add_representer(set, _yaml_represent_set)
+SafeLoader.add_constructor("!!python/set", _yaml_construct_set)
 
 
 SETTINGS_FILE = Path.cwd() / "settings.yaml"
@@ -110,45 +123,17 @@ class CurrencySettings(BaseModel):
     )
     active_league: str = Field(default="tmpstandard", description="The active league to fetch currency values for")
 
-    @field_validator("poe1leagues", "poe2leagues", mode="before")
-    @classmethod
-    def _coerce_leagues_to_set(cls, v: object | None) -> set[str]:
-        """Coerce league values (often parsed as lists from YAML) into sets.
+    @field_serializer("poe1leagues", "poe2leagues", mode="plain")
+    def _serialize_leagues(self, v: object) -> object:
+        """Ensure `poe1leagues`/`poe2leagues` serialize as Python `set` objects.
 
-        This prevents Pydantic serializer warnings when the input value is a
-        list but the model field is declared as `set[str]`.
-
-        Args:
-            v (object | None): Value to coerce into a set of strings.
-
-        Returns:
-            set[str]: The coerced set of league ids.
-
+        Pydantic may produce `list` during serialization in some code paths;
+        returning a `set` here keeps the runtime type so the YAML dumper
+        emits the `!!python/set` tag via the registered SafeDumper.
         """
-        # Normalize None to empty iterable
-        if v is None:
-            v = []
-
-        result: set[str]
-        # If already a set, return as-is
-        if isinstance(v, set):
-            return v
-        # Handle mapping types by taking keys
-        if isinstance(v, dict):
-            result = set(v.keys())
-        elif isinstance(v, (list, tuple)):
-            result = set(v)
-        elif isinstance(v, str):
-            result = {v}
-        else:
-            # Fallback for other iterable types
-            try:
-                result = set(v) if isinstance(v, Iterable) else set()
-            except (TypeError, ValueError) as exc:
-                logger.debug("Failed to coerce leagues to set: %r (%s)", v, exc)
-                result = set()
-
-        return result
+        if isinstance(v, (list, tuple)):
+            return set(v)
+        return v
 
     @contextmanager
     def delay_validation(self) -> Generator[None, None, None]:
@@ -164,7 +149,7 @@ class CurrencySettings(BaseModel):
             ValidationError: If validation fails when the context manager exits.
 
         """
-        original_dict = copy.deepcopy(self.__dict__)
+        original_state = copy.deepcopy(self.model_dump())
 
         original_validate_assignment = self.model_config.get("validate_assignment", True)
         self.model_config["validate_assignment"] = False
@@ -174,10 +159,13 @@ class CurrencySettings(BaseModel):
             self.model_config["validate_assignment"] = original_validate_assignment
 
         try:
-            self.__class__.model_validate(self.__dict__)
+            validated = self.__class__.model_validate(self.model_dump())
+            validated_state = dict(validated.model_dump())
+            for k, v in validated_state.items():
+                setattr(self, k, v)
         except (ValidationError, TypeError, ValueError):
-            for key, value in original_dict.items():
-                setattr(self, key, value)
+            for k, v in original_state.items():
+                setattr(self, k, v)
             raise
 
     @model_validator(mode="after")
@@ -307,29 +295,113 @@ class SettingsManager(QObject):
         self._settings = self._load_settings()  # reload settings from file in case they were changed externally
         return self._settings
 
-    def _load_settings(self) -> PoEMSettings:
+    def _load_settings(self) -> PoEMSettings:  # noqa: C901, PLR0912, PLR0915
         """Get PoEMSettings from settings.yaml, or return default settings if file is missing or invalid.
 
         Returns:
             PoEMSettings: Loaded or default settings object.
 
         """
+        # Build a safe default to fall back to in any failure case
+        default = PoEMSettings(keys=KeySettings(), logic=LogicSettings(), currency=CurrencySettings())
+
         try:
             with SETTINGS_FILE.open() as f:
-                settings: PoEMSettings = parse_yaml_file_as(PoEMSettings, f)
-        except (YAMLError, ValidationError):
-            logger.exception("Error reading settings from file, using default settings")
-            # return default settings
-            settings: PoEMSettings = PoEMSettings(
-                keys=KeySettings(), logic=LogicSettings(), currency=CurrencySettings()
-            )
+                try:
+                    raw = load(f, Loader=SafeLoader)
+                except (YAMLError, ValidationError):
+                    logger.exception("Error parsing settings YAML; using defaults")
+                    return default
         except FileNotFoundError:
             logger.warning("Settings file not found, using default settings and creating settings file")
-            # return default settings and create settings file
-            settings: PoEMSettings = PoEMSettings(
-                keys=KeySettings(), logic=LogicSettings(), currency=CurrencySettings()
+            self.set_settings(default)
+            return default
+
+        if not isinstance(raw, dict):
+            logger.warning("Settings file did not contain a mapping; using defaults")
+            return default
+
+        # Section handlers: (ModelClass, default_instance)
+        # Use fresh default instances per-section to avoid accidental mutation
+        # of the `default` PoEMSettings nested objects during validation.
+        sections = {
+            "keys": (KeySettings, KeySettings()),
+            "logic": (LogicSettings, LogicSettings()),
+            "currency": (CurrencySettings, CurrencySettings()),
+        }
+
+        validated: dict[str, BaseModel] = {}
+
+        for name, (cls, default_instance) in sections.items():
+            raw_section = raw.get(name, {}) or {}
+            if not isinstance(raw_section, dict):
+                logger.warning("Settings.%s is not a mapping; ignoring user value", name)
+                raw_section = {}
+
+            # Start from the default instance
+            current = default_instance
+
+            # If the model provides a delay_validation context manager, use it
+            # to set interdependent fields together without triggering
+            # partially-applied validators (avoids spurious warnings).
+            if hasattr(current, "delay_validation"):
+                try:
+                    with current.delay_validation():
+                        current_dict = current.model_dump()
+                        for field_name, val in raw_section.items():
+                            if field_name not in current_dict:
+                                logger.debug("Unknown setting %s.%s - ignoring", name, field_name)
+                                continue
+                            setattr(current, field_name, val)
+                except (ValidationError, TypeError, ValueError):
+                    logger.warning("Invalid values in settings.%s; keeping defaults", name)
+                    current = default_instance
+            else:
+                # Fall back to per-field trial instantiation for models without delay_validation
+                current_dict = current.model_dump()
+                for field_name, val in raw_section.items():
+                    if field_name not in current_dict:
+                        logger.debug("Unknown setting %s.%s - ignoring", name, field_name)
+                        continue
+                    trial = current_dict.copy()
+                    trial[field_name] = val
+                    try:
+                        current = cls(**trial)
+                        current_dict = current.model_dump()
+                    except (ValidationError, TypeError, ValueError):
+                        logger.warning("Invalid value for %s.%s: %r; keeping default", name, field_name, val)
+
+            validated[name] = current
+
+        # Reconstruct each section to ensure any remaining invalid nested values
+        # are replaced with per-section defaults rather than falling back to the
+        # entire settings object.
+        cleaned: dict[str, BaseModel] = {}
+        for name, (cls, default_instance) in sections.items():
+            candidate = validated.get(name, default_instance)
+            try:
+                # Ensure the candidate can be re-instantiated/validated as its class
+                if isinstance(candidate, BaseModel):
+                    cleaned[name] = cls(**candidate.model_dump())
+                else:
+                    cleaned[name] = cls(**(candidate or {}))
+            except (ValidationError, TypeError, ValueError):
+                logger.warning("Invalid values in finalized settings.%s; using defaults", name)
+                cleaned[name] = default_instance
+
+        try:
+            # Construct final settings without re-running nested validation. We
+            # already validated/cleaned each section above; constructing without
+            # validation avoids a single nested failure causing a full fallback.
+            settings = PoEMSettings.model_construct(
+                keys=cast("KeySettings", cleaned["keys"]),
+                logic=cast("LogicSettings", cleaned["logic"]),
+                currency=cast("CurrencySettings", cleaned["currency"]),
             )
-            self.set_settings(settings)
+        except (ValidationError, TypeError, ValueError):
+            logger.exception("Failed to compose final PoEMSettings, falling back to defaults")
+            return default
+
         return settings
 
     def set_settings(self, new_settings: PoEMSettings) -> None:
@@ -351,7 +423,18 @@ class SettingsManager(QObject):
         )
 
         with SETTINGS_FILE.open("w") as f:
-            to_yaml_file(f, new_settings, add_comments=True)
+            # Serialize the settings to a plain mapping and write YAML using PyYAML.
+            # Pydantic's `model_dump()` may produce lists for `set` fields; ensure
+            # the league fields are actual `set` instances so our SafeDumper will
+            # tag them with `!set` and they round-trip on load.
+            data = new_settings.model_dump()
+            currency_section = data.get("currency", {}) or {}
+            for field in ("poe1leagues", "poe2leagues"):
+                val = currency_section.get(field)
+                if isinstance(val, list):
+                    currency_section[field] = set(val)
+            data["currency"] = currency_section
+            dump(data, f, sort_keys=False, Dumper=SafeDumper)
 
         for category in new_settings.__class__.model_fields:
             category_obj = getattr(new_settings, category)
