@@ -200,12 +200,13 @@ class Item:
                     j += 1
             elif low.startswith("note:"):
                 note_text = line.split(":", 1)[1].strip()
-                # Inline price extraction to keep parsing logic local to Item
-                pattern = r"~\s*(?:b/o|price)\b[:\s]*([\d\.,]+)\s*([A-Za-z0-9]+(?:[-\s][A-Za-z0-9]+)*)"
+                # Attempt to extract price and currency from the note text
+                pattern = r"~\s*(?:b/o|price)\b[:\s]*([\d\.,\s]+)\s*([A-Za-z0-9]+(?:[-\s][A-Za-z0-9]+)*)"
                 m = re.search(pattern, line, flags=re.IGNORECASE)
                 if m:
                     price_str, cur_type = m.groups()
-                    normalized = price_str.replace(",", "").replace(".", "").replace(" ", "")
+                    # Normalize by removing any non-digit characters (commas, dots, spaces, NBSP, etc.)
+                    normalized = re.sub(r"[^\d]", "", price_str)
                     try:
                         price_val = int(normalized)
                     except ValueError:
