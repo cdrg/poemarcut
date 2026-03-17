@@ -1,17 +1,17 @@
 import pytest
 
-from poemarcut import logic
+from poemarcut import item, logic
 
 
 def test_parse_int_price_valid() -> None:
-    assert logic.parse_int_price("1,234") == 1234
-    assert logic.parse_int_price("1.234") == 1234
-    assert logic.parse_int_price("42") == 42
+    assert item.parse_int_price("1,234") == 1234
+    assert item.parse_int_price("1.234") == 1234
+    assert item.parse_int_price("42") == 42
 
 
 def test_parse_int_price_invalid() -> None:
     with pytest.raises(ValueError, match=r"invalid literal|could not convert|invalid price|valid integer"):
-        logic.parse_int_price("abc")
+        item.parse_int_price("abc")
 
 
 def test_compute_discounted_price_and_actual() -> None:

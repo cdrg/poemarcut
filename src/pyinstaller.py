@@ -5,11 +5,22 @@ import shutil
 from pathlib import Path
 
 import PyInstaller.__main__
+import pytest
 
 SRC_ROOT = Path(__file__).parent.absolute()
 PROJ_ROOT = SRC_ROOT.parent.absolute()
 
 path_to_main = str(SRC_ROOT / "poemarcut_gui.py")
+
+
+def run_tests() -> bool:
+    """Run all tests using pytest.
+
+    Returns:
+        True if all tests passed, False otherwise.
+
+    """
+    return pytest.main([str(PROJ_ROOT / "tests")]) == 0
 
 
 def install() -> None:
@@ -19,6 +30,10 @@ def install() -> None:
         None
 
     """
+    if not run_tests():
+        print("Tests failed, aborting build.")  # noqa: T201
+        return
+
     # delete contents of existing dist directory so it's clean
     if (PROJ_ROOT / "dist").exists():
         shutil.rmtree(PROJ_ROOT / "dist")
