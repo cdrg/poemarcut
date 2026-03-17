@@ -10,6 +10,36 @@ from enum import Enum
 from typing import Any
 
 
+def parse_int_price(raw: str) -> int:
+    """Parse a raw string into an integer price.
+
+    Normalizes common thousands separators such as commas, dots, and
+    spaces (including non-breaking spaces) by removing any non-digit
+    characters before converting to ``int``.
+
+    Args:
+        raw: Raw input string possibly containing thousands separators.
+
+    Returns:
+        The parsed integer price.
+
+    Raises:
+        ValueError: If the input does not contain any digits or cannot be
+            converted to an integer after normalization.
+
+    """
+    s = (raw or "").strip()
+    normalized = re.sub(r"[^\d]", "", s)
+    if not normalized:
+        msg = f"invalid price: '{raw}'"
+        raise ValueError(msg)
+    try:
+        return int(normalized)
+    except (ValueError, TypeError) as e:
+        msg = f"invalid price: '{raw}'"
+        raise ValueError(msg) from e
+
+
 @dataclass
 class Item:
     """Represents a Path of Exile 1 or 2 item."""
@@ -205,10 +235,8 @@ class Item:
                 m = re.search(pattern, line, flags=re.IGNORECASE)
                 if m:
                     price_str, cur_type = m.groups()
-                    # Normalize by removing any non-digit characters (commas, dots, spaces, NBSP, etc.)
-                    normalized = re.sub(r"[^\d]", "", price_str)
                     try:
-                        price_val = int(normalized)
+                        price_val = parse_int_price(price_str)
                     except ValueError:
                         price_val, cur_type = None, None
                     else:

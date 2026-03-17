@@ -9,20 +9,6 @@ import math
 from collections.abc import Callable
 
 
-def parse_int_price(raw: str) -> int:
-    """Parse a clipboard/raw string into an integer price.
-
-    Removes common thousands separators (comma and dot) and converts to
-    int. Raises ValueError on invalid input.
-    """
-    s = (raw or "").replace(",", "").replace(".", "")
-    try:
-        return int(s)
-    except (ValueError, TypeError) as e:
-        msg = f"Clipboard value '{raw}' is not a valid integer"
-        raise ValueError(msg) from e
-
-
 def compute_discounted_price_and_actual(copied_price: int, discount_percent: int) -> tuple[int, float]:
     """Return (discounted_price, actual_discount_percent).
 

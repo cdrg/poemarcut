@@ -13,11 +13,10 @@ import pyperclip
 from pynput.keyboard import Key, KeyCode, Listener
 
 from poemarcut import constants, currency, settings
-from poemarcut.item import Item
+from poemarcut.item import Item, parse_int_price
 from poemarcut.logic import (
     compute_discounted_price_and_actual,
     convert_and_compute_price,
-    parse_int_price,
 )
 
 # pydirectinput uses Windows-only APIs at import-time; import only on Windows
