@@ -12,7 +12,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QFontDatabase, QIcon, QIntValidator, QValidator
+from PyQt6.QtGui import QCloseEvent, QDoubleValidator, QFontDatabase, QIcon, QIntValidator, QValidator
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -365,7 +365,7 @@ class PoEMarcutGUI(QMainWindow):
         leftthird_layout.addWidget(logic_settings_header, row_idx, 0, 1, 2)
         row_idx += 1
 
-        # discount percent field (user-friendly replacement for adjustment factor)
+        # discount percent field
         af_setting_label: QLabel = QLabel("Discount %")
         af_field_info = logic_settings.__class__.model_fields.get("discount_percent")
         af_setting_label.setToolTip((af_field_info.description if af_field_info is not None else "") or "")
@@ -410,6 +410,22 @@ class PoEMarcutGUI(QMainWindow):
         )
         leftthird_layout.addWidget(eac_setting_label, row_idx, 0)
         leftthird_layout.addWidget(self.enter_after_cb, row_idx, 1)
+        row_idx += 1
+
+        # price delay field
+        pd_setting_label: QLabel = QLabel("Price delay")
+        pd_field_info = logic_settings.__class__.model_fields["price_delay"]
+        pd_setting_label.setToolTip(pd_field_info.description or "")
+        self.price_delay_le: QLineEdit = QLineEdit(str(logic_settings.price_delay))
+        self.price_delay_le.setValidator(QDoubleValidator(0.1, 5.0, 1, parent=self.price_delay_le))
+        self.price_delay_le.returnPressed.connect(
+            partial(self.process_qle_float, "Logic", "price_delay", self.price_delay_le)
+        )
+        self.price_delay_le.editingFinished.connect(
+            partial(self.process_qle_float, "Logic", "price_delay", self.price_delay_le)
+        )
+        leftthird_layout.addWidget(pd_setting_label, row_idx, 0)
+        leftthird_layout.addWidget(self.price_delay_le, row_idx, 1)
         row_idx += 1
 
         # add some vertical stretch by setting row stretch for the following rows

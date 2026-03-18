@@ -93,6 +93,12 @@ class LogicSettings(BaseModel):
         default=True,
         description="True: press 'enter' key after calculating and pasting the new price. False: do not press 'enter' automatically",
     )
+    price_delay: float = Field(
+        default=0.2,
+        ge=0.1,
+        le=5.0,
+        description="Delay in seconds between opening the price dialog and pasting new price",
+    )
 
 
 class CurrencySettings(BaseModel):

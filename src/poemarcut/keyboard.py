@@ -460,7 +460,7 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                 new_price: int = discounted_price_candidate
 
                 # Small delay before pasting to ensure the price dialog is ready for input
-                time.sleep(0.1)
+                time.sleep(settings_manager.settings.logic.price_delay)
 
                 # Paste the new price from clipboard
                 logger.info(
