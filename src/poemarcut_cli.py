@@ -122,7 +122,7 @@ def print_poe2_currency_suggestions(discount_percent: int, data: dict) -> None:
         print("Error: Invalid data, could not determine currency suggestions for PoE2.", file=sys.stderr)
 
 
-def main() -> int:  # noqa: C901
+def main() -> int:  # noqa: C901, PLR0915
     """Read settings from file, fetch and print currency values, then start keyboard listener.
 
     Returns:
@@ -203,7 +203,13 @@ def main() -> int:  # noqa: C901
                 if game == 1
                 else next(iter(settings_man.settings.currency.poe2leagues))
             )
-            data = currency.store.get_data(game=game, league=league, update=settings_man.settings.currency.autoupdate)
+            try:
+                data = currency.store.get_data(
+                    game=game, league=league, update=settings_man.settings.currency.autoupdate
+                )
+            except (LookupError, ValueError, OSError):
+                print(f"Error: Could not retrieve currency data for PoE{game} ({league}).", file=sys.stderr)
+                data = {}
             print_last_updated(game=game, league=league, file_mtime=data.get("mtime", 0))
 
             # If data object is valid, print suggested currency values for case where current price is 1

@@ -101,3 +101,31 @@ def test_conversion_chain_with_impossible_low_max_fails() -> None:
     assert discounted is None
     assert cur is None
     assert actual > 1.0
+
+
+def test_convert_and_compute_handles_lookuperror_from_get_rate() -> None:
+    """If the exchange-rate callable raises LookupError, the helper should gracefully return (None, None, last_actual) rather than raising.
+
+    This prevents errors from currency lookups (e.g. network/cache issues) from bubbling out of higher-level callers.
+    """
+    currencies = ["divine", "chaos"]
+
+    def get_rate(*, from_currency: str, to_currency: str) -> float:  # noqa: ARG001
+        msg = "no data"
+        raise LookupError(msg)
+
+    # Choose parameters so initial actual discount is larger than max_actual
+    # to force the function to attempt a conversion and call get_rate.
+    discounted, cur, actual = logic.convert_and_compute_price(
+        original_units=2,
+        last_cur_type="divine",
+        currencies=currencies,
+        discount_percent=50,
+        max_actual_discount=10,
+        get_exchange_rate=get_rate,
+    )
+
+    assert discounted is None
+    assert cur is None
+    # initial actual for 2 units with 50% should be 50.0
+    assert pytest.approx(actual, rel=1e-9) == 50.0

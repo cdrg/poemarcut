@@ -532,7 +532,13 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             logger.info("Stop key pressed, stopping listener.")
             return False
 
-    except (OSError, RuntimeError, pyautogui.FailSafeException):
+    except (
+        OSError,
+        RuntimeError,
+        pyautogui.FailSafeException,
+        LookupError,
+        pyperclip.PyperclipException,
+    ):
         logger.exception("Exception while handling key release event.")
 
     return True

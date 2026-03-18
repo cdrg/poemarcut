@@ -123,7 +123,7 @@ def convert_and_compute_price(  # noqa: C901, PLR0911, PLR0913
         next_currency = currencies_list[next_idx]
         try:
             rate = get_exchange_rate(from_currency=current_currency, to_currency=next_currency)
-        except (KeyError, ValueError, TypeError):
+        except (LookupError, KeyError, ValueError, TypeError):
             return None, None, actual
 
         cumulative_rate *= float(rate)
