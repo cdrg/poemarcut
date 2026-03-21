@@ -3,19 +3,20 @@ You log in to PoE for the day and you have a bunch of unsold items in your merch
 
 Are you going to price check every single one of them again? No way, total waste of time.
 
-Instead, PoEMarcut assists you in quickly adjusting items downward. Hover over an item, press F2+F3 to reduce its price by a set %. Repeat next time you log on until items sell or they reach nothing and you vendor them.
+Instead, PoEMarcut assists you in quickly adjusting items downward. Hover over an item, press F2+F3 to reduce its price by a set %. Go to the next time. Repeat next time you log on until items sell or they reach nothing and you vendor them.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I7ROZFD) / [![patreon](https://github.com/user-attachments/assets/d52158fe-389c-446e-9054-867f88c5462e)](https://patreon.com/cdrpt) / [![discord](https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/66e3d74e9607e61eeec9c91b_Logo.svg)](https://discord.gg/gRMjT5gVms)
 
 ## Usage
-1. Run `poemarcut`. It now has a GUI! (cli available from source)
+1. Run `poemarcut.exe`. The GUI window will open. Configure settings to your liking.
 2. Hover your mouse cursor over an item in a merchant tab.
-3. Press `F1` (default) to copy the currency type from the item (optional, only necessary if you want to capture the currency type).
-4. Press `F2` (default) or `right-click` to open the item price dialog.
-5. Press `F3` (default) to adjust the price text downward by 10% (default) and close the dialog.
-   NEW! F3 will change to the next-lowest configured currency when the current amount is 1 or max_discount is exceeded.
+3. Press `F2` (default) or `right-click` to open the item price dialog.
+4. Press `F3` (default) to adjust the price text downward by 10% (default) and close the dialog.
+   (F3 will change to the next-lowest configured currency when the current amount is 1 or max_discount is exceeded.)
+
+- (Optional) Press `F1` (default) before `F2`  to copy the currency type from the item (only necessary if you want to capture the currency type for conversion)
    
-Press `F6` (default) to disable hotkeys if desired. Hotkeys can be toggled from the GUI. (F6 exits in CLI)
+Press `F6` (default) to disable hotkeys if desired. Hotkeys can be toggled from the GUI.
 
 The new price is always rounded down (decimal is truncated), to ensure the price is always reduced, even when the existing price is `2` (which will become `1` unless configured otherwise).
 
