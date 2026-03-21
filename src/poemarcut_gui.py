@@ -374,9 +374,10 @@ class PoEMarcutGUI(QMainWindow):
     def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]  # noqa: N802
         """Track window resizes and persist size to settings (debounced)."""
         try:
-            # Use frameGeometry so persisted size includes window decorations
-            # and round-trips correctly when restored via setGeometry().
-            geom = self.frameGeometry()
+            # Use geometry (client area) when persisting size so the stored
+            # width/height round-trip correctly via setGeometry() without
+            # accumulating window decoration deltas across runs.
+            geom = self.geometry()
             if getattr(self, "_settings_cache", None) is not None:
                 try:
                     self._settings_cache.gui.size.width = int(geom.width())
