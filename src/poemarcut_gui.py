@@ -1642,12 +1642,18 @@ class PoEMarcutGUI(QMainWindow):
             if updated_map != raw_currencies:
                 try:
                     self._updating_currency_values = True
-                    settings_obj = self.settings_manager.settings
+                    current = self.settings_manager.settings
+                    new_settings = settings.PoEMSettings(
+                        keys=settings.KeySettings(**current.keys.model_dump()),
+                        logic=settings.LogicSettings(**current.logic.model_dump()),
+                        currency=settings.CurrencySettings(**current.currency.model_dump()),
+                        gui=settings.GuiSettings(**current.gui.model_dump()),
+                    )
                     if currency_settings.active_game == 1:
-                        settings_obj.currency.poe1currencies = updated_map
+                        new_settings.currency.poe1currencies = updated_map
                     else:
-                        settings_obj.currency.poe2currencies = updated_map
-                    self.settings_manager.set_settings(settings_obj)
+                        new_settings.currency.poe2currencies = updated_map
+                    self.settings_manager.set_settings(new_settings)
                 except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
                     logger.exception("Failed to persist updated currency mapping from exchange rates")
                 finally:
@@ -1884,22 +1890,38 @@ class PoEMarcutGUI(QMainWindow):
                 league = text[: -len(" [PoE1]")] if game == 1 else text[: -len(" [PoE2]")]
 
             # Persist the selection (store original league id).
-            # Set both values inside CurrencySettings.delay_validation to avoid triggering the model validator.
-            settings_obj = self.settings_manager.settings
+            # Build a fresh settings object and modify that to ensure
+            # SettingsManager.set_settings sees a real change and emits
+            # `settings_changed` signals.
             try:
-                with settings_obj.currency.delay_validation():
-                    settings_obj.currency.active_game = game
-                    settings_obj.currency.active_league = league
-                self.settings_manager.set_settings(settings_obj)
-            except (AttributeError, TypeError, ValueError, settings.ValidationError):
-                # Fall back to individual settings if something unexpected fails
+                current = self.settings_manager.settings
+                new_settings = settings.PoEMSettings(
+                    keys=settings.KeySettings(**current.keys.model_dump()),
+                    logic=settings.LogicSettings(**current.logic.model_dump()),
+                    currency=settings.CurrencySettings(**current.currency.model_dump()),
+                    gui=settings.GuiSettings(**current.gui.model_dump()),
+                )
                 try:
-                    settings_obj = self.settings_manager.settings
-                    settings_obj.currency.active_game = game
-                    settings_obj.currency.active_league = league
-                    self.settings_manager.set_settings(settings_obj)
+                    with new_settings.currency.delay_validation():
+                        new_settings.currency.active_game = game
+                        new_settings.currency.active_league = league
+                    self.settings_manager.set_settings(new_settings)
                 except (AttributeError, TypeError, ValueError, settings.ValidationError):
-                    logger.exception("Failed to persist active game/league from league_combo selection (fallback)")
+                    # Fall back to assigning without delay_validation on a fresh copy
+                    try:
+                        new_settings = settings.PoEMSettings(
+                            keys=settings.KeySettings(**current.keys.model_dump()),
+                            logic=settings.LogicSettings(**current.logic.model_dump()),
+                            currency=settings.CurrencySettings(**current.currency.model_dump()),
+                            gui=settings.GuiSettings(**current.gui.model_dump()),
+                        )
+                        new_settings.currency.active_game = game
+                        new_settings.currency.active_league = league
+                        self.settings_manager.set_settings(new_settings)
+                    except (AttributeError, TypeError, ValueError, settings.ValidationError):
+                        logger.exception("Failed to persist active game/league from league_combo selection (fallback)")
+            except (AttributeError, TypeError, ValueError, settings.ValidationError):
+                logger.exception("Failed to persist active game/league from league_combo selection")
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to persist active game/league from league_combo selection")
 
@@ -2099,23 +2121,29 @@ class PoEMarcutGUI(QMainWindow):
         """
         leagues: set[str] | None = currency.get_leagues(game=game)
         try:
-            settings_obj = self.settings_manager.settings
+            current = self.settings_manager.settings
+            new_settings = settings.PoEMSettings(
+                keys=settings.KeySettings(**current.keys.model_dump()),
+                logic=settings.LogicSettings(**current.logic.model_dump()),
+                currency=settings.CurrencySettings(**current.currency.model_dump()),
+                gui=settings.GuiSettings(**current.gui.model_dump()),
+            )
             new_leagues = set(leagues or [])
             try:
                 # Batch the update so validators run against the final consistent state
-                with settings_obj.currency.delay_validation():
-                    setattr(settings_obj.currency, setting_attr, new_leagues)
+                with new_settings.currency.delay_validation():
+                    setattr(new_settings.currency, setting_attr, new_leagues)
                     # If active_game matches and the active_league would become invalid,
                     # pick a sensible default from the new list to avoid transient warnings.
-                    if settings_obj.currency.active_game == game and (
-                        settings_obj.currency.active_league not in new_leagues and new_leagues
+                    if new_settings.currency.active_game == game and (
+                        new_settings.currency.active_league not in new_leagues and new_leagues
                     ):
-                        settings_obj.currency.active_league = sorted(new_leagues)[0]
-                self.settings_manager.set_settings(settings_obj)
+                        new_settings.currency.active_league = sorted(new_leagues)[0]
+                self.settings_manager.set_settings(new_settings)
             except (AttributeError, TypeError, ValueError):
                 # Fallback to previous behavior if delay_validation isn't available or fails
-                setattr(settings_obj.currency, setting_attr, new_leagues)
-                self.settings_manager.set_settings(settings_obj)
+                setattr(new_settings.currency, setting_attr, new_leagues)
+                self.settings_manager.set_settings(new_settings)
         except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
             logger.exception("Failed to update %s from get_poe%d_leagues", setting_attr, game)
         # Always refresh UI widgets afterwards
@@ -2144,19 +2172,25 @@ class PoEMarcutGUI(QMainWindow):
         """
         setting_attr = "poe1leagues" if game == 1 else "poe2leagues"
         try:
-            settings_obj = self.settings_manager.settings
+            current = self.settings_manager.settings
+            new_settings = settings.PoEMSettings(
+                keys=settings.KeySettings(**current.keys.model_dump()),
+                logic=settings.LogicSettings(**current.logic.model_dump()),
+                currency=settings.CurrencySettings(**current.currency.model_dump()),
+                gui=settings.GuiSettings(**current.gui.model_dump()),
+            )
             new_leagues = set(leagues or [])
             try:
-                with settings_obj.currency.delay_validation():
-                    setattr(settings_obj.currency, setting_attr, new_leagues)
-                    if settings_obj.currency.active_game == game and (
-                        settings_obj.currency.active_league not in new_leagues and new_leagues
+                with new_settings.currency.delay_validation():
+                    setattr(new_settings.currency, setting_attr, new_leagues)
+                    if new_settings.currency.active_game == game and (
+                        new_settings.currency.active_league not in new_leagues and new_leagues
                     ):
-                        settings_obj.currency.active_league = sorted(new_leagues)[0]
-                self.settings_manager.set_settings(settings_obj)
+                        new_settings.currency.active_league = sorted(new_leagues)[0]
+                self.settings_manager.set_settings(new_settings)
             except (AttributeError, TypeError, ValueError):
-                setattr(settings_obj.currency, setting_attr, new_leagues)
-                self.settings_manager.set_settings(settings_obj)
+                setattr(new_settings.currency, setting_attr, new_leagues)
+                self.settings_manager.set_settings(new_settings)
         except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
             logger.exception("Failed to persist %s from background league fetch", setting_attr)
 

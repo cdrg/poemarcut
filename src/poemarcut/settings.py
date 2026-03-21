@@ -603,7 +603,18 @@ class SettingsManager(QObject):
         )
 
         setattr(settings_obj.currency, setting_field, new_mapping)
-        self.set_settings(settings_obj)
+        # Avoid mutating the manager's cached settings in-place. Build a
+        # fresh validated settings object and persist that so
+        # SettingsManager.set_settings can compute diffs and emit signals.
+        current = self.settings
+        new_settings = PoEMSettings(
+            keys=KeySettings(**current.keys.model_dump()),
+            logic=LogicSettings(**current.logic.model_dump()),
+            currency=CurrencySettings(**current.currency.model_dump()),
+            gui=GuiSettings(**current.gui.model_dump()),
+        )
+        setattr(new_settings.currency, setting_field, new_mapping)
+        self.set_settings(new_settings)
 
 
 # Module-level shared SettingsManager instance for easy access by other modules.
