@@ -13,6 +13,7 @@ from types import MappingProxyType
 
 from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
+    QAction,
     QCloseEvent,
     QDoubleValidator,
     QFontDatabase,
@@ -34,9 +35,11 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QPushButton,
     QRadioButton,
     QSizePolicy,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -208,11 +211,17 @@ class PoEMarcutGUI(QMainWindow):
             f"QInputDialog {{ color: {poe_text_color}; background-color: {poe_dark_bg_color}; }} "
         )
 
+        self._tray_icon: QSystemTrayIcon | None = None
+        self._tray_menu: QMenu | None = None
+        self._tray_hotkeys_action: QAction | None = None
+
         self.init_ui()
+
         # Local cached settings object to avoid repeatedly reading from disk
         # and to allow batching/debouncing writes.
         self._settings_cache = self.settings_manager.settings
         self._persist_scheduled = False
+
         # Signal used to update the UI from a background thread
         self.hotkeys_listener_stopped.connect(self._on_hotkeys_listener_stopped)
 
@@ -336,7 +345,9 @@ class PoEMarcutGUI(QMainWindow):
     def moveEvent(self, event: QMoveEvent) -> None:  # type: ignore[override]  # noqa: N802
         """Track window moves and persist position to settings (debounced)."""
         try:
-            geom = self.geometry()
+            # Use frameGeometry to include the window frame/title bar so
+            # persisted position reflects the visible outer window.
+            geom = self.frameGeometry()
             if getattr(self, "_settings_cache", None) is not None:
                 try:
                     self._settings_cache.gui.position.x = int(geom.x())
@@ -363,7 +374,9 @@ class PoEMarcutGUI(QMainWindow):
     def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]  # noqa: N802
         """Track window resizes and persist size to settings (debounced)."""
         try:
-            geom = self.geometry()
+            # Use frameGeometry so persisted size includes window decorations
+            # and round-trips correctly when restored via setGeometry().
+            geom = self.frameGeometry()
             if getattr(self, "_settings_cache", None) is not None:
                 try:
                     self._settings_cache.gui.size.width = int(geom.width())
@@ -527,6 +540,15 @@ class PoEMarcutGUI(QMainWindow):
             partial(self.process_qcb, "Gui", "minimize_to_tray", self.minimize_to_tray_cb)
         )
         self.minimize_to_tray_cb.setChecked(gui_settings.minimize_to_tray)
+        # Disable the option if the system tray is unavailable on this platform
+        try:
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                self.minimize_to_tray_cb.setEnabled(False)
+                # Append availability note to the tooltip
+                note = " (disabled: system tray unavailable on this platform)"
+                self.minimize_to_tray_cb.setToolTip((minimize_to_tray_field_info.description or "") + note)
+        except (AttributeError, RuntimeError, TypeError):
+            logger.exception("Failed to query system tray availability for minimize-to-tray checkbox")
         leftthird_layout.addWidget(minimize_to_tray_label, row_idx, 0)
         leftthird_layout.addWidget(self.minimize_to_tray_cb, row_idx, 1)
         row_idx += 1
@@ -976,6 +998,13 @@ class PoEMarcutGUI(QMainWindow):
                     self.toggle_always_on_top(desired=checkbox.isChecked())
                 except (AttributeError, RuntimeError, TypeError):
                     logger.exception("Failed to toggle always-on-top UI state immediately: %s")
+            # Apply immediate UI change for minimize-to-tray so the behavior
+            # takes effect without waiting for debounced persistence.
+            if category.lower() == "gui" and setting.lower() == "minimize_to_tray":
+                try:
+                    self.toggle_minimize_to_tray(desired=checkbox.isChecked())
+                except (AttributeError, RuntimeError, TypeError):
+                    logger.exception("Failed to toggle minimize-to-tray UI state immediately")
             self._schedule_persist_settings()
         except (AttributeError, TypeError, settings.ValidationError):
             logger.exception("Failed to set checkbox setting %s.%s", category, setting)
@@ -1226,6 +1255,137 @@ class PoEMarcutGUI(QMainWindow):
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on=False)
             self.show()
 
+    def _setup_tray_icon(self) -> None:  # noqa: C901
+        """Create the system tray icon and its context menu."""
+        # Guard against environments with no system tray support
+        try:
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                logger.warning("System tray not available on this platform; minimize-to-tray disabled")
+                return
+        except Exception:
+            # If the call fails for any reason, skip tray setup
+            logger.exception("Failed to query system tray availability")
+            return
+
+        # Use existing app icon if set, otherwise fallback to bundled icon file
+        icon = self.windowIcon() if not self.windowIcon().isNull() else QIcon(str(icon_path))
+
+        # Create menu and actions (keep persistent parent references)
+        menu = QMenu(self)
+        show_action = QAction("Show PoEMarcut", self)
+        # Hotkeys state action - reflects current state and toggles hotkeys when clicked
+        hotkeys_text = "Hotkeys Enabled" if getattr(self, "hotkeys_enabled", False) else "Hotkeys Disabled"
+        hotkeys_action = QAction(hotkeys_text, self)
+        quit_action = QAction("Quit", self)
+        menu.addAction(show_action)
+        menu.addAction(hotkeys_action)
+        menu.addSeparator()
+        menu.addAction(quit_action)
+
+        tray = QSystemTrayIcon(icon, self)
+        tray.setContextMenu(menu)
+        tray.setToolTip("PoEMarcut")
+
+        def _on_show_triggered() -> None:
+            try:
+                self.show()
+                # restore window state and raise
+                self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+                self.activateWindow()
+            except Exception:
+                logger.exception("Failed to restore window from tray")
+
+        def _on_quit_triggered() -> None:
+            app = QApplication.instance()
+            if app is not None:
+                try:
+                    app.quit()
+                except Exception:
+                    logger.exception("Failed to quit application from tray menu")
+
+        show_action.triggered.connect(_on_show_triggered)
+        hotkeys_action.triggered.connect(self.toggle_hotkeys)
+        quit_action.triggered.connect(_on_quit_triggered)
+
+        def _on_tray_activated(reason: QSystemTrayIcon.ActivationReason) -> None:
+            # Restore on single-click or double-click depending on platform
+            try:
+                if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+                    _on_show_triggered()
+            except (TypeError, RuntimeError):
+                logger.exception("Tray activation handler failed")
+
+        tray.activated.connect(_on_tray_activated)
+
+        # Store references and make visible
+        self._tray_icon = tray
+        self._tray_menu = menu  # unfortunately the menu does not seem to work on Windows
+        # Keep a reference to the hotkeys action so we can update its text when state changes
+        self._tray_hotkeys_action = hotkeys_action
+        try:
+            tray.setVisible(True)
+        except (RuntimeError, OSError):
+            logger.exception("Failed to show system tray icon")
+
+    def toggle_minimize_to_tray(self, *, desired: bool | None = None) -> None:
+        """Enable or disable minimize-to-tray behavior and manage the tray icon.
+
+        If `desired` is None, the current cached settings are consulted.
+        """
+        if desired is not None:
+            enable = bool(desired)
+        else:
+            gui_settings = getattr(self, "_settings_cache", None)
+            if gui_settings is not None:
+                enable = bool(gui_settings.gui.minimize_to_tray)
+            else:
+                enable = bool(settings.settings_manager.settings.gui.minimize_to_tray)
+
+        if enable:
+            # Create tray icon if not already present
+            if self._tray_icon is None:
+                self._setup_tray_icon()
+        # Hide and remove tray icon if present
+        elif self._tray_icon is not None:
+            try:
+                self._tray_icon.hide()
+            except (RuntimeError, OSError):
+                logger.exception("Failed to hide tray icon")
+            # clear references so icon/menu can be GC'd; ignore errors during cleanup
+            with contextlib.suppress(Exception):
+                self._tray_icon.setContextMenu(None)
+            self._tray_icon = None
+            self._tray_menu = None
+            self._tray_hotkeys_action = None
+
+    def changeEvent(self, event: QEvent) -> None:  # type: ignore[override]  # noqa: N802
+        """Handle window state changes to implement minimize-to-tray behavior."""
+        try:
+            if event is not None and event.type() == QEvent.Type.WindowStateChange:
+                # If the window was minimized and minimize-to-tray is enabled,
+                # hide the window and keep the app running with a tray icon.
+                minimized = bool(self.windowState() & Qt.WindowState.WindowMinimized)
+                gui_settings = getattr(self, "_settings_cache", None)
+                enabled = (
+                    bool(gui_settings.gui.minimize_to_tray)
+                    if gui_settings is not None
+                    else bool(settings.settings_manager.settings.gui.minimize_to_tray)
+                )
+                if minimized and enabled:
+                    # Ensure tray exists
+                    if self._tray_icon is None:
+                        self._setup_tray_icon()
+                    # Hide window instead of showing in taskbar
+                    try:
+                        self.hide()
+                    except Exception:
+                        logger.exception("Failed to hide window for minimize-to-tray")
+        except Exception:
+            logger.exception("Error during changeEvent handling")
+        # Always call base implementation
+        with contextlib.suppress(Exception):
+            super().changeEvent(event)  # type: ignore[misc]
+
     def toggle_settings_window(self) -> None:
         """Toggle visibility of the settings window.
 
@@ -1366,10 +1526,21 @@ class PoEMarcutGUI(QMainWindow):
             self.hotkeys_button.setText("Disable hotkeys")
             self.indicator.setStyleSheet(qradiobutton_greenlight)
             self.indicator.setToolTip("Hotkeys enabled")
+            # Update tray menu action text if present
+            if self._tray_hotkeys_action is not None:
+                try:
+                    self._tray_hotkeys_action.setText("Hotkeys Enabled")
+                except Exception:
+                    logger.exception("Failed to update tray hotkeys action text to enabled")
             return
         self.hotkeys_button.setText("Enable hotkeys")
         self.indicator.setStyleSheet(qradiobutton_redlight)
         self.indicator.setToolTip("Hotkeys disabled")
+        if self._tray_hotkeys_action is not None:
+            try:
+                self._tray_hotkeys_action.setText("Hotkeys Disabled")
+            except Exception:
+                logger.exception("Failed to update tray hotkeys action text to disabled")
 
     def populate_league_combo(self) -> None:
         """Populate the league combo box.

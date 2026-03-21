@@ -23,6 +23,9 @@ def test_missing_settings_creates_defaults(tmp_path: Path, monkeypatch: pytest.M
     sm = settings_mod.settings_manager
     s = sm.settings
     assert s.logic.discount_percent == 10
+    # GUI default should include minimize_to_tray and be False
+    assert hasattr(s.gui, "minimize_to_tray")
+    assert s.gui.minimize_to_tray is False
 
 
 @pytest.mark.filterwarnings("ignore:Pydantic serializer warnings:UserWarning:pydantic.main")
