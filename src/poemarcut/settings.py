@@ -101,13 +101,25 @@ class LogicSettings(BaseModel):
     )
 
 
+class WindowPosition(BaseModel):
+    """Window position with explicit x/y coordinates."""
+
+    x: int = Field(default=400, description="X position of the main window")
+    y: int = Field(default=100, description="Y position of the main window")
+
+
+class WindowSize(BaseModel):
+    """Window size with explicit width/height."""
+
+    width: int = Field(default=450, description="Width of the main window")
+    height: int = Field(default=400, description="Height of the main window")
+
+
 class GuiSettings(BaseModel):
     """GUI settings for PoEMarcut."""
 
-    x_pos: int = Field(default=100, description="X position of the main window")
-    y_pos: int = Field(default=100, description="Y position of the main window")
-    width: int = Field(default=400, description="Width of the main window")
-    height: int = Field(default=300, description="Height of the main window")
+    position: WindowPosition = Field(default_factory=WindowPosition, description="Position of the main window")
+    size: WindowSize = Field(default_factory=WindowSize, description="Size of the main window")
     always_on_top: bool = Field(
         default=False, description="Whether the main window should always be on top of other windows"
     )

@@ -12,7 +12,16 @@ from pathlib import Path
 from types import MappingProxyType
 
 from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QDoubleValidator, QFontDatabase, QIcon, QIntValidator, QValidator
+from PyQt6.QtGui import (
+    QCloseEvent,
+    QDoubleValidator,
+    QFontDatabase,
+    QIcon,
+    QIntValidator,
+    QMoveEvent,
+    QResizeEvent,
+    QValidator,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -159,7 +168,15 @@ class PoEMarcutGUI(QMainWindow):
         # Use the shared SettingsManager singleton
         self.settings_manager: settings.SettingsManager = settings.settings_manager
         self.setWindowTitle("PoE Marcut")
-        self.setGeometry(400, 100, 450, 400)
+        # Initialize window geometry from saved settings
+        try:
+            gui_settings = self.settings_manager.settings.gui
+            pos = gui_settings.position
+            size = gui_settings.size
+            self.setGeometry(int(pos.x), int(pos.y), int(size.width), int(size.height))
+        except (AttributeError, TypeError, ValueError):
+            # Fallback to a sensible default if settings are malformed
+            self.setGeometry(400, 100, 450, 400)
 
         self.custom_font_family: str = "default"
 
@@ -316,6 +333,60 @@ class PoEMarcutGUI(QMainWindow):
         self.settings_window.setLayout(self.side_settings_layout)
         self.settings_window.hide()  # Start hidden
 
+    def moveEvent(self, event: QMoveEvent) -> None:  # type: ignore[override]  # noqa: N802
+        """Track window moves and persist position to settings (debounced)."""
+        try:
+            geom = self.geometry()
+            if getattr(self, "_settings_cache", None) is not None:
+                try:
+                    self._settings_cache.gui.position.x = int(geom.x())
+                    self._settings_cache.gui.position.y = int(geom.y())
+                except (AttributeError, TypeError, ValueError):
+                    # Fallback: attempt direct assignment again
+                    self._settings_cache.gui.position.x = int(geom.x())
+                    self._settings_cache.gui.position.y = int(geom.y())
+                # Update settings UI fields if present
+                try:
+                    with QSignalBlocker(getattr(self, "window_position_x_qle", None)):
+                        if getattr(self, "window_position_x_qle", None) is not None:
+                            self.window_position_x_qle.setText(str(int(geom.x())))
+                    with QSignalBlocker(getattr(self, "window_position_y_qle", None)):
+                        if getattr(self, "window_position_y_qle", None) is not None:
+                            self.window_position_y_qle.setText(str(int(geom.y())))
+                except (AttributeError, TypeError, RuntimeError) as _exc:
+                    logger.debug("Failed updating position fields in settings UI", exc_info=True)
+                self._schedule_persist_settings()
+        except (AttributeError, TypeError, ValueError):
+            logger.exception("Failed to persist window position on move")
+        super().moveEvent(event)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]  # noqa: N802
+        """Track window resizes and persist size to settings (debounced)."""
+        try:
+            geom = self.geometry()
+            if getattr(self, "_settings_cache", None) is not None:
+                try:
+                    self._settings_cache.gui.size.width = int(geom.width())
+                    self._settings_cache.gui.size.height = int(geom.height())
+                except (AttributeError, TypeError, ValueError):
+                    # Fallback: attempt direct assignment again
+                    self._settings_cache.gui.size.width = int(geom.width())
+                    self._settings_cache.gui.size.height = int(geom.height())
+                # Update settings UI fields if present
+                try:
+                    with QSignalBlocker(getattr(self, "window_size_width_qle", None)):
+                        if getattr(self, "window_size_width_qle", None) is not None:
+                            self.window_size_width_qle.setText(str(int(geom.width())))
+                    with QSignalBlocker(getattr(self, "window_size_height_qle", None)):
+                        if getattr(self, "window_size_height_qle", None) is not None:
+                            self.window_size_height_qle.setText(str(int(geom.height())))
+                except (AttributeError, TypeError, RuntimeError) as _exc:
+                    logger.debug("Failed updating size fields in settings UI", exc_info=True)
+                self._schedule_persist_settings()
+        except (AttributeError, TypeError, ValueError):
+            logger.exception("Failed to persist window size on resize")
+        super().resizeEvent(event)
+
     def setup_settings_sidebar(self) -> None:  # noqa: PLR0915
         """Build the settings sidebar.
 
@@ -458,6 +529,48 @@ class PoEMarcutGUI(QMainWindow):
         self.minimize_to_tray_cb.setChecked(gui_settings.minimize_to_tray)
         leftthird_layout.addWidget(minimize_to_tray_label, row_idx, 0)
         leftthird_layout.addWidget(self.minimize_to_tray_cb, row_idx, 1)
+        row_idx += 1
+
+        # window position fields
+        window_position_label: QLabel = QLabel("Window position")
+        window_position_field_info = gui_settings.__class__.model_fields["position"]
+        window_position_label.setToolTip(window_position_field_info.description or "")
+        leftthird_layout.addWidget(window_position_label, row_idx, 0)
+        row_idx += 1
+        position_layout: QHBoxLayout = QHBoxLayout()
+        self.window_position_x_qle: QLineEdit = QLineEdit()
+        self.window_position_x_qle.setReadOnly(True)
+        self.window_position_x_qle.setText(str(gui_settings.position.x))
+        position_layout.addWidget(self.window_position_x_qle)
+        window_position_comma_label: QLabel = QLabel(",")
+        position_layout.addWidget(window_position_comma_label)
+        self.window_position_y_qle: QLineEdit = QLineEdit()
+        self.window_position_y_qle.setReadOnly(True)
+        self.window_position_y_qle.setText(str(gui_settings.position.y))
+        position_layout.addWidget(self.window_position_y_qle)
+
+        leftthird_layout.addLayout(position_layout, row_idx, 0, 1, 2)
+        row_idx += 1
+
+        # window size fields
+        window_size_label: QLabel = QLabel("Window size")
+        window_size_field_info = gui_settings.__class__.model_fields["size"]
+        window_size_label.setToolTip(window_size_field_info.description or "")
+        leftthird_layout.addWidget(window_size_label, row_idx, 0)
+        row_idx += 1
+        size_layout: QHBoxLayout = QHBoxLayout()
+        self.window_size_width_qle: QLineEdit = QLineEdit()
+        self.window_size_width_qle.setReadOnly(True)
+        self.window_size_width_qle.setText(str(gui_settings.size.width))
+        size_layout.addWidget(self.window_size_width_qle)
+        window_size_x_label: QLabel = QLabel("x")
+        size_layout.addWidget(window_size_x_label)
+        self.window_size_height_qle: QLineEdit = QLineEdit()
+        self.window_size_height_qle.setReadOnly(True)
+        self.window_size_height_qle.setText(str(gui_settings.size.height))
+        size_layout.addWidget(self.window_size_height_qle)
+
+        leftthird_layout.addLayout(size_layout, row_idx, 0, 1, 2)
         row_idx += 1
 
         # stretch to push items to top
