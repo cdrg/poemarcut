@@ -11,7 +11,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import MappingProxyType
 
-from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDoubleValidator, QFontDatabase, QIcon, QIntValidator, QValidator
 from PyQt6.QtWidgets import (
     QApplication,
@@ -192,6 +192,10 @@ class PoEMarcutGUI(QMainWindow):
         )
 
         self.init_ui()
+        # Local cached settings object to avoid repeatedly reading from disk
+        # and to allow batching/debouncing writes.
+        self._settings_cache = self.settings_manager.settings
+        self._persist_scheduled = False
         # Signal used to update the UI from a background thread
         self.hotkeys_listener_stopped.connect(self._on_hotkeys_listener_stopped)
 
@@ -220,11 +224,6 @@ class PoEMarcutGUI(QMainWindow):
         self.currency_header: QLabel = QLabel("Currency Information")
         self.currency_header.setStyleSheet(poe_header_style)
         main_layout.addWidget(self.currency_header, 0, 0, 1, 1)
-
-        self.pin_checkbox: QCheckBox = QCheckBox("Always on top")
-        self.pin_checkbox.setToolTip("Always stay on top of other windows")
-        self.pin_checkbox.stateChanged.connect(self.toggle_always_on_top)
-        main_layout.addWidget(self.pin_checkbox, 0, 2, 1, 1)
 
         self.github_update_label: QLabel = QLabel(f"v{__version__}")
         main_layout.addWidget(self.github_update_label, 1, 2, 1, 1)
@@ -428,41 +427,49 @@ class PoEMarcutGUI(QMainWindow):
         leftthird_layout.addWidget(self.price_delay_le, row_idx, 1)
         row_idx += 1
 
-        # add some vertical stretch by setting row stretch for the following rows
+        # set up components for GUI settings fields
+        gui_settings: settings.GuiSettings = settings_man.settings.gui
+        gui_settings_header: QLabel = QLabel("GUI settings")
+        gui_settings_header.setStyleSheet(poe_header_style)
+        leftthird_layout.addWidget(gui_settings_header, row_idx, 0, 1, 2)
+        row_idx += 1
+
+        # always on top field
+        always_on_top_label: QLabel = QLabel("Always on top")
+        always_on_top_field_info = gui_settings.__class__.model_fields["always_on_top"]
+        always_on_top_label.setToolTip(always_on_top_field_info.description or "")
+        self.always_on_top_cb: QCheckBox = QCheckBox()
+        self.always_on_top_cb.stateChanged.connect(
+            partial(self.process_qcb, "Gui", "always_on_top", self.always_on_top_cb)
+        )
+        self.always_on_top_cb.setChecked(gui_settings.always_on_top)
+        leftthird_layout.addWidget(always_on_top_label, row_idx, 0)
+        leftthird_layout.addWidget(self.always_on_top_cb, row_idx, 1)
+        row_idx += 1
+
+        # minimize to tray field
+        minimize_to_tray_label: QLabel = QLabel("Minimize to tray")
+        minimize_to_tray_field_info = gui_settings.__class__.model_fields["minimize_to_tray"]
+        minimize_to_tray_label.setToolTip(minimize_to_tray_field_info.description or "")
+        self.minimize_to_tray_cb: QCheckBox = QCheckBox()
+        self.minimize_to_tray_cb.stateChanged.connect(
+            partial(self.process_qcb, "Gui", "minimize_to_tray", self.minimize_to_tray_cb)
+        )
+        self.minimize_to_tray_cb.setChecked(gui_settings.minimize_to_tray)
+        leftthird_layout.addWidget(minimize_to_tray_label, row_idx, 0)
+        leftthird_layout.addWidget(self.minimize_to_tray_cb, row_idx, 1)
+        row_idx += 1
+
+        # stretch to push items to top
         leftthird_layout.setRowStretch(row_idx, 1)
-        row_idx += 1
 
-        currency_settings: settings.CurrencySettings = settings_man.settings.currency
-
-        # active game field
-        ag_setting_label: QLabel = QLabel("Active game")
-        ag_field_info = currency_settings.__class__.model_fields["active_game"]
-        ag_setting_label.setToolTip(ag_field_info.description or "")
-        self.active_game_le: QLineEdit = QLineEdit(str(currency_settings.active_game))
-        self.active_game_le.setReadOnly(True)
-        leftthird_layout.addWidget(ag_setting_label, row_idx, 0)
-        leftthird_layout.addWidget(self.active_game_le, row_idx, 1)
-        row_idx += 1
-
-        # active league field
-        al_setting_label: QLabel = QLabel("Active league")
-        al_field_info = currency_settings.__class__.model_fields["active_league"]
-        al_setting_label.setToolTip(al_field_info.description or "")
-        self.active_league_le: QLineEdit = QLineEdit(str(currency_settings.active_league))
-        self.active_league_le.setReadOnly(True)
-        leftthird_layout.addWidget(al_setting_label, row_idx, 0)
-        row_idx += 1
-        leftthird_layout.addWidget(self.active_league_le, row_idx, 0)
-        row_idx += 1
-
-        # final stretch so the left panel doesn't collapse
-        leftthird_layout.setRowStretch(row_idx, 1)
         self.side_settings_layout.addLayout(leftthird_layout, 0)
 
         ### middle panel of settings
         middle_layout: QVBoxLayout = QVBoxLayout()
-        ## set up components for Currency settings fields
 
+        ## set up components for Currency settings fields
+        currency_settings: settings.CurrencySettings = settings_man.settings.currency
         currency_settings_header: QLabel = QLabel("Currency settings")
         currency_settings_header.setStyleSheet(poe_header_style)
         middle_layout.addWidget(currency_settings_header)
@@ -522,6 +529,15 @@ class PoEMarcutGUI(QMainWindow):
         self.add_poe2_currency_button.setToolTip("Add a PoE2 currency to the conversion list")
         self.add_poe2_currency_button.clicked.connect(self.add_poe2_currency)
         middle_layout.addWidget(self.add_poe2_currency_button)
+
+        # active game field
+        ag_setting_label: QLabel = QLabel("Active game")
+        ag_field_info = currency_settings.__class__.model_fields["active_game"]
+        ag_setting_label.setToolTip(ag_field_info.description or "")
+        self.active_game_le: QLineEdit = QLineEdit(str(currency_settings.active_game))
+        self.active_game_le.setReadOnly(True)
+        middle_layout.addWidget(ag_setting_label)
+        middle_layout.addWidget(self.active_game_le)
 
         middle_layout.addStretch()
         self.side_settings_layout.addLayout(middle_layout, 1)
@@ -589,6 +605,15 @@ class PoEMarcutGUI(QMainWindow):
         self.get_poe2_leagues_button.clicked.connect(self.get_poe2_leagues)
         rightthird_layout.addWidget(self.get_poe2_leagues_button)
 
+        # active league field
+        al_setting_label: QLabel = QLabel("Active league")
+        al_field_info = currency_settings.__class__.model_fields["active_league"]
+        al_setting_label.setToolTip(al_field_info.description or "")
+        self.active_league_le: QLineEdit = QLineEdit(str(currency_settings.active_league))
+        self.active_league_le.setReadOnly(True)
+        rightthird_layout.addWidget(al_setting_label)
+        rightthird_layout.addWidget(self.active_league_le)
+
         self.side_settings_layout.addLayout(rightthird_layout, 1)
 
         # React to external setting changes and update widgets
@@ -631,7 +656,7 @@ class PoEMarcutGUI(QMainWindow):
         layout.addWidget(remove_btn)
         return container
 
-    def _remove_list_item(self, list_widget: QListWidget, text: str, category: str, setting: str) -> None:
+    def _remove_list_item(self, list_widget: QListWidget, text: str, category: str, setting: str) -> None:  # noqa: C901, PLR0912
         """Remove the first matching item with `text` from `list_widget` and save settings.
 
         Args:
@@ -671,7 +696,35 @@ class PoEMarcutGUI(QMainWindow):
                         w.deleteLater()
                 list_widget.takeItem(i)
                 break
-        # Persist the new list to settings
+        # Update remove-button state immediately so the last remaining item
+        # is shown as unremovable in the UI without waiting for debounced
+        # persistence.
+        try:
+            remaining = list_widget.count()
+            for j in range(remaining):
+                it2 = list_widget.item(j)
+                if it2 is None:
+                    continue
+                w2 = list_widget.itemWidget(it2)
+                if w2 is None:
+                    continue
+                # Find the remove QPushButton within the custom widget
+                try:
+                    btn = w2.findChild(QPushButton)
+                except (AttributeError, TypeError):
+                    btn = None
+                if btn is None:
+                    continue
+                if remaining <= 1:
+                    btn.setEnabled(False)
+                    btn.setToolTip("Cannot remove the last item")
+                else:
+                    btn.setEnabled(True)
+                    btn.setToolTip("")
+        except (AttributeError, TypeError, RuntimeError):
+            logger.exception("Failed to update remove-button state after removal %s.%s", category, setting)
+
+        # Persist the new list to settings (debounced)
         try:
             self.process_qlw(category, setting, list_widget)
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
@@ -734,9 +787,10 @@ class PoEMarcutGUI(QMainWindow):
 
         """
         try:
-            settings_obj = self.settings_manager.settings
+            settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), qle.text())
-            self.settings_manager.set_settings(settings_obj)
+            self._settings_cache = settings_obj
+            self._schedule_persist_settings()
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to set text setting %s.%s", category, setting)
 
@@ -754,9 +808,10 @@ class PoEMarcutGUI(QMainWindow):
         """
         try:
             value = float(qle.text())
-            settings_obj = self.settings_manager.settings
+            settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), value)
-            self.settings_manager.set_settings(settings_obj)
+            self._settings_cache = settings_obj
+            self._schedule_persist_settings()
         except ValueError:
             pass  # Invalid float input; ignore
         except (AttributeError, TypeError, settings.ValidationError):
@@ -776,9 +831,10 @@ class PoEMarcutGUI(QMainWindow):
         """
         try:
             value = int(qle.text())
-            settings_obj = self.settings_manager.settings
+            settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), value)
-            self.settings_manager.set_settings(settings_obj)
+            self._settings_cache = settings_obj
+            self._schedule_persist_settings()
         except ValueError:
             pass  # Invalid int input; ignore
         except (AttributeError, TypeError, settings.ValidationError):
@@ -797,9 +853,17 @@ class PoEMarcutGUI(QMainWindow):
 
         """
         try:
-            settings_obj = self.settings_manager.settings
+            settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), checkbox.isChecked())
-            self.settings_manager.set_settings(settings_obj)
+            self._settings_cache = settings_obj
+            # Apply immediate UI change for always_on_top so the main window
+            # updates right away instead of waiting for debounced persistence.
+            if category.lower() == "gui" and setting.lower() == "always_on_top":
+                try:
+                    self.toggle_always_on_top(desired=checkbox.isChecked())
+                except (AttributeError, RuntimeError, TypeError):
+                    logger.exception("Failed to toggle always-on-top UI state immediately: %s")
+            self._schedule_persist_settings()
         except (AttributeError, TypeError, settings.ValidationError):
             logger.exception("Failed to set checkbox setting %s.%s", category, setting)
 
@@ -835,7 +899,7 @@ class PoEMarcutGUI(QMainWindow):
             if text:
                 items.append(text)
         try:
-            settings_obj = self.settings_manager.settings
+            settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
             # If updating currency order lists, delegate conversion to settings/currency helpers
             if category.lower() == "currency" and setting.lower() in ("poe1currencies", "poe2currencies"):
                 game = settings_obj.currency.active_game
@@ -852,9 +916,32 @@ class PoEMarcutGUI(QMainWindow):
             else:
                 setattr(getattr(settings_obj, category.lower()), setting.lower(), items)
 
-            self.settings_manager.set_settings(settings_obj)
+            # Cache and debounce persisting to avoid synchronous disk I/O on the UI thread
+            self._settings_cache = settings_obj
+            self._schedule_persist_settings()
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to update list setting %s.%s", category, setting)
+
+    def _schedule_persist_settings(self, delay_ms: int = 200) -> None:
+        """Schedule persisting cached settings after a short debounce delay.
+
+        Subsequent calls while a persist is scheduled are ignored.
+        """
+        if getattr(self, "_persist_scheduled", False):
+            return
+        self._persist_scheduled = True
+        QTimer.singleShot(delay_ms, self._flush_cached_settings)
+
+    def _flush_cached_settings(self) -> None:
+        """Persist cached settings via SettingsManager and refresh the cache."""
+        self._persist_scheduled = False
+        try:
+            if getattr(self, "_settings_cache", None) is not None:
+                self.settings_manager.set_settings(self._settings_cache)
+                # Refresh cache from manager to pick up any normalization
+                self._settings_cache = self.settings_manager.settings
+        except (OSError, settings.YAMLError, settings.ValidationError, TypeError, ValueError):
+            logger.exception("Failed to persist cached settings: %s")
 
     def _on_setting_changed(self, full_field: str, value: object) -> None:
         """Slot called when a setting is changed; updates the corresponding widget.
@@ -882,6 +969,8 @@ class PoEMarcutGUI(QMainWindow):
             self._handle_logic_setting(setting, value)
         elif category == "currency":
             self._handle_currency_setting(setting, value)
+        elif category == "gui":
+            self._handle_gui_setting(setting, value)
 
     def _handle_key_setting(self, setting: str, value: object) -> None:
         """Update key-related widgets when settings change.
@@ -919,6 +1008,29 @@ class PoEMarcutGUI(QMainWindow):
         elif setting == "enter_after_calcprice":
             with QSignalBlocker(self.enter_after_cb):
                 self.enter_after_cb.setChecked(bool(value))
+
+    def _handle_gui_setting(self, setting: str, value: object) -> None:
+        """Update GUI-related widgets when settings change.
+
+        Args:
+            setting (str): GUI field name.
+            value (object): New value for the GUI setting.
+
+        Returns:
+            None
+
+        """
+        if setting == "always_on_top":
+            with QSignalBlocker(self.always_on_top_cb):
+                self.always_on_top_cb.setChecked(bool(value))
+            # Also update the main window flag to match the new setting
+            try:
+                self.toggle_always_on_top(desired=bool(value))
+            except (AttributeError, RuntimeError, TypeError):
+                logger.exception("Failed to toggle always-on-top from settings change: %s")
+        elif setting == "minimize_to_tray":
+            with QSignalBlocker(self.minimize_to_tray_cb):
+                self.minimize_to_tray_cb.setChecked(bool(value))
 
     def _handle_currency_setting(self, setting: str, value: object) -> None:
         """Handle updates for currency-related settings.
@@ -972,19 +1084,34 @@ class PoEMarcutGUI(QMainWindow):
             with QSignalBlocker(self.league_combo):
                 self.populate_league_combo()
 
-    def toggle_always_on_top(self) -> None:
+    def toggle_always_on_top(self, *, desired: bool | None = None) -> None:
         """Toggle the always-stays-on-top window flag.
 
         Returns:
             None
 
         """
-        self.hide()
-        if self.pin_checkbox.isChecked():
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on=True)
+        # Determine desired state: prefer explicit `desired` argument, then
+        # fall back to cached GUI settings, then to persisted settings.
+        if desired is not None:
+            always_on_top = bool(desired)
         else:
+            gui_settings = getattr(self, "_settings_cache", None)
+            if gui_settings is not None:
+                always_on_top = bool(gui_settings.gui.always_on_top)
+            else:
+                always_on_top = bool(settings.settings_manager.settings.gui.always_on_top)
+
+        # Evaluate current flag once and compare explicitly.
+        current_flag = bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        if always_on_top and not current_flag:
+            self.hide()
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on=True)
+            self.show()
+        elif (not always_on_top) and current_flag:
+            self.hide()
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on=False)
-        self.show()
+            self.show()
 
     def toggle_settings_window(self) -> None:
         """Toggle visibility of the settings window.

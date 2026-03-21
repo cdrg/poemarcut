@@ -101,6 +101,21 @@ class LogicSettings(BaseModel):
     )
 
 
+class GuiSettings(BaseModel):
+    """GUI settings for PoEMarcut."""
+
+    x_pos: int = Field(default=100, description="X position of the main window")
+    y_pos: int = Field(default=100, description="Y position of the main window")
+    width: int = Field(default=400, description="Width of the main window")
+    height: int = Field(default=300, description="Height of the main window")
+    always_on_top: bool = Field(
+        default=False, description="Whether the main window should always be on top of other windows"
+    )
+    minimize_to_tray: bool = Field(
+        default=False, description="Whether to minimize the application to the system tray instead of the taskbar"
+    )
+
+
 class CurrencySettings(BaseModel):
     """Currency update settings."""
 
@@ -309,6 +324,7 @@ class PoEMSettings(BaseModel):
 
     keys: KeySettings
     logic: LogicSettings
+    gui: GuiSettings
     currency: CurrencySettings
 
 
@@ -336,7 +352,19 @@ class SettingsManager(QObject):
             PoEMSettings: The current settings object.
 
         """
-        self._settings = self._load_settings()  # reload settings from file in case they were changed externally
+        # Return cached settings. Use `reload_settings()` to force reloading
+        # from disk when necessary. Avoid reloading on every access which can
+        # be expensive (parsing/validation + file I/O).
+        return self._settings
+
+    def reload_settings(self) -> PoEMSettings:
+        """Force reloading settings from disk and return the fresh settings.
+
+        Returns:
+            PoEMSettings: The reloaded settings object.
+
+        """
+        self._settings = self._load_settings()
         return self._settings
 
     def _load_settings(self) -> PoEMSettings:  # noqa: C901, PLR0912, PLR0915
@@ -347,7 +375,9 @@ class SettingsManager(QObject):
 
         """
         # Build a safe default to fall back to in any failure case
-        default = PoEMSettings(keys=KeySettings(), logic=LogicSettings(), currency=CurrencySettings())
+        default = PoEMSettings(
+            keys=KeySettings(), logic=LogicSettings(), currency=CurrencySettings(), gui=GuiSettings()
+        )
 
         try:
             with SETTINGS_FILE.open() as f:
@@ -357,8 +387,8 @@ class SettingsManager(QObject):
                     logger.exception("Error parsing settings YAML; using defaults")
                     try:
                         self.set_settings(default)
-                    except Exception:
-                        logger.exception("Failed to persist default settings after parse error")
+                    except (OSError, YAMLError, TypeError, ValidationError):
+                        logger.exception("Failed to persist default settings after parse error: %s")
                     return default
         except FileNotFoundError:
             logger.warning("Settings file not found, using default settings and creating settings file")
@@ -369,8 +399,8 @@ class SettingsManager(QObject):
             logger.warning("Settings file did not contain a mapping; using defaults")
             try:
                 self.set_settings(default)
-            except Exception:
-                logger.exception("Failed to persist default settings for non-mapping YAML")
+            except (OSError, YAMLError, TypeError, ValidationError):
+                logger.exception("Failed to persist default settings for non-mapping YAML: %s")
             return default
 
         # Section handlers: (ModelClass, default_instance)
@@ -380,6 +410,7 @@ class SettingsManager(QObject):
             "keys": (KeySettings, KeySettings()),
             "logic": (LogicSettings, LogicSettings()),
             "currency": (CurrencySettings, CurrencySettings()),
+            "gui": (GuiSettings, GuiSettings()),
         }
 
         validated: dict[str, BaseModel] = {}
@@ -449,13 +480,15 @@ class SettingsManager(QObject):
                 keys=cast("KeySettings", cleaned["keys"]),
                 logic=cast("LogicSettings", cleaned["logic"]),
                 currency=cast("CurrencySettings", cleaned["currency"]),
+                gui=cast("GuiSettings", cleaned["gui"]),
             )
+
         except (ValidationError, TypeError, ValueError):
             logger.exception("Failed to compose final PoEMSettings, falling back to defaults")
             try:
                 self.set_settings(default)
-            except Exception:
-                logger.exception("Failed to persist default settings after final composition failure")
+            except (OSError, YAMLError, TypeError, ValidationError):
+                logger.exception("Failed to persist default settings after final composition failure: %s")
             return default
 
         return settings
@@ -470,20 +503,30 @@ class SettingsManager(QObject):
             None
 
         """
-        # Ensure we store a proper PoEMSettings object (keep nested sections intact)
-        # new_settings is expected to be a PoEMSettings instance; reconstruct to be safe
+        # Compute diff against current cached settings and emit signals only
+        # for fields that changed. This avoids triggering many UI updates when
+        # only a single field was modified.
+        try:
+            old_dump = self._settings.model_dump() if getattr(self, "_settings", None) is not None else {}
+        except (AttributeError, TypeError, ValueError):
+            old_dump = {}
+
+        # Reconstruct validated settings object and assign. Accept partial
+        # `model_construct`-style inputs by falling back to fresh defaults
+        # when nested sections are missing.
+        keys_src = getattr(new_settings, "keys", KeySettings())
+        logic_src = getattr(new_settings, "logic", LogicSettings())
+        currency_src = getattr(new_settings, "currency", CurrencySettings())
+        gui_src = getattr(new_settings, "gui", GuiSettings())
+
         self._settings = PoEMSettings(
-            keys=KeySettings(**new_settings.keys.model_dump()),
-            logic=LogicSettings(**new_settings.logic.model_dump()),
-            currency=CurrencySettings(**new_settings.currency.model_dump()),
+            keys=KeySettings(**keys_src.model_dump()),
+            logic=LogicSettings(**logic_src.model_dump()),
+            currency=CurrencySettings(**currency_src.model_dump()),
+            gui=GuiSettings(**gui_src.model_dump()),
         )
 
         with SETTINGS_FILE.open("w") as f:
-            # Serialize the validated settings to a plain mapping and write YAML
-            # using PyYAML. Use `self._settings` which was reconstructed above
-            # (and therefore validated) rather than the incoming
-            # `new_settings` which may have bypassed validation via
-            # `model_construct`.
             data = self._settings.model_dump()
             currency_section = data.get("currency", {}) or {}
 
@@ -503,10 +546,14 @@ class SettingsManager(QObject):
             data["currency"] = currency_section
             dump(data, f, sort_keys=False, Dumper=SafeDumper)
 
-        for category in new_settings.__class__.model_fields:
-            category_obj = getattr(new_settings, category)
-            for field_name in category_obj.__class__.model_fields:
-                self.settings_changed.emit(f"{category}.{field_name}", getattr(category_obj, field_name))
+        # Emit changed-field signals only
+        new_dump = self._settings.model_dump()
+        for category, cat_fields in new_dump.items():
+            old_cat = old_dump.get(category) or {}
+            for field_name, new_val in cat_fields.items():
+                old_val = old_cat.get(field_name)
+                if old_val != new_val:
+                    self.settings_changed.emit(f"{category}.{field_name}", new_val)
 
     def add_currency_and_persist(self, *, game: int, setting_field: str, chosen_key: str) -> None:
         """Insert `chosen_key` into the appropriate position and persist updated mapping.
