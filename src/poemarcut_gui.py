@@ -44,7 +44,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from poemarcut import __version__, constants, currency, keyboard, settings, update
+from poemarcut import __version__, constants, currency, keyboard, logic, settings, update
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,7 @@ class PoEMarcutGUI(QMainWindow):
 
         self.currency_list: QListWidget = QListWidget()
         main_layout.addWidget(self.currency_list, 3, 0, 1, 3)
-        self.populate_currency_list()
+        self.populate_currency_mappings()
 
         status_layout: QHBoxLayout = QHBoxLayout()
         self.status_label: QLabel = QLabel("Status:")
@@ -1194,17 +1194,17 @@ class PoEMarcutGUI(QMainWindow):
                 val = value or []
                 items = list(val) if isinstance(val, Iterable) else []
                 self._populate_list_widget(self.p1c_list_widget, items, "Currency", "poe1currencies")
-            self.populate_currency_list()
+            self.populate_currency_mappings()
         elif setting == "poe2currencies":
             with QSignalBlocker(self.p2c_list_widget):
                 val = value or []
                 items = list(val) if isinstance(val, Iterable) else []
                 self._populate_list_widget(self.p2c_list_widget, items, "Currency", "poe2currencies")
-            self.populate_currency_list()
+            self.populate_currency_mappings()
         elif setting == "active_game":
             with QSignalBlocker(self.active_game_le):
                 self.active_game_le.setText(str(value))
-            self.populate_currency_list()
+            self.populate_currency_mappings()
         elif setting == "active_league":
             with QSignalBlocker(self.active_league_le):
                 self.active_league_le.setText(str(value))
@@ -1435,7 +1435,7 @@ class PoEMarcutGUI(QMainWindow):
         ):
             # Use frameGeometry to include the window frame/title bar
             frame = self.frameGeometry()
-            x = frame.x() + frame.width() + 8
+            x = frame.x() + frame.width()
             y = frame.y()
             self.settings_window.move(x, y)
         return super().eventFilter(a0, a1)
@@ -1607,7 +1607,7 @@ class PoEMarcutGUI(QMainWindow):
         layout.addStretch()
         return container
 
-    def populate_currency_list(self) -> None:  # noqa: C901, PLR0912, PLR0915
+    def populate_currency_mappings(self) -> None:  # noqa: C901, PLR0912, PLR0915
         """Populate the main currency list for the currently active game.
 
         Returns:
@@ -1717,10 +1717,36 @@ class PoEMarcutGUI(QMainWindow):
             # For non-final pairs, show the adjusted lower-currency value; for final, show 'vendor it'.
             if lower is not None and rate is not None:
                 try:
-                    discount = float(self.settings_manager.settings.logic.discount_percent)
-                    adj_discount: int = round(discount)
-                    adj_value = (1.0 - (discount / 100.0)) * float(rate)
-                    adj_text = f"{int(adj_value)} {lower}" if adj_value >= 1 else f"1 {lower}"
+                    # Use the same conversion logic as keyboard.on_release
+                    discount_raw = self.settings_manager.settings.logic.discount_percent
+                    adj_discount: int = round(float(discount_raw))
+                    max_actual_discount = int(self.settings_manager.settings.logic.max_actual_discount)
+
+                    def _get_rate(*, from_currency: str, to_currency: str) -> float:
+                        return currency.get_exchange_rate(
+                            game=game,
+                            league=league,
+                            from_currency=from_currency,
+                            to_currency=to_currency,
+                            autoupdate=currency_settings.autoupdate,
+                        )
+
+                    # Use 1 unit of the current currency as the previewed original amount
+                    converted_price, converted_currency, _converted_actual = logic.convert_and_compute_price(
+                        original_units=1,
+                        last_cur_type=c,
+                        currencies=currencies,
+                        discount_percent=adj_discount,
+                        max_actual_discount=max_actual_discount,
+                        get_exchange_rate=_get_rate,
+                    )
+
+                    if converted_price is None:
+                        adj_text = f"1 {lower}"
+                    else:
+                        display_cur = converted_currency or lower
+                        adj_text = f"{int(converted_price)} {display_cur}"
+
                     adj_widget = self._make_currency_display_widget(f"{adj_discount}% off =", adj_text)
                     adj_item = QListWidgetItem()
                     adj_item.setSizeHint(adj_widget.sizeHint())
@@ -1728,7 +1754,7 @@ class PoEMarcutGUI(QMainWindow):
                     adj_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
                     self.currency_list.addItem(adj_item)
                     self.currency_list.setItemWidget(adj_item, adj_widget)
-                except (AttributeError, TypeError, ValueError):
+                except (AttributeError, TypeError, ValueError, LookupError):
                     pass
             else:
                 # Final currency: add a vendor-it adjusted item
@@ -1793,7 +1819,7 @@ class PoEMarcutGUI(QMainWindow):
                 self.active_league_le.setText(str(currency_settings.active_league))
 
             # Refresh main currency list and last-update label
-            self.populate_currency_list()
+            self.populate_currency_mappings()
         except (AttributeError, TypeError, ValueError, settings.ValidationError):
             logger.exception("Failed to populate league settings")
 
@@ -2069,7 +2095,7 @@ class PoEMarcutGUI(QMainWindow):
                 with QSignalBlocker(list_widget):
                     updated = getattr(self.settings_manager.settings.currency, setting_field) or {}
                     self._populate_list_widget(list_widget, list(updated.keys()), "Currency", setting_field)
-                self.populate_currency_list()
+                self.populate_currency_mappings()
             except (AttributeError, RuntimeError, TypeError, ValueError):
                 logger.exception("Failed to refresh currency UI for %s after adding %s", setting_field, chosen_key)
         except (AttributeError, TypeError, ImportError):
