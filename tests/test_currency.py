@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+from PyQt6.QtWidgets import QApplication
 
 from poemarcut import currency
 
@@ -27,14 +28,17 @@ def test_empty_market_response_detected(
     assert "Empty market response" in caplog.text
 
 
-def test_gui_shows_warning_for_empty_market_response(monkeypatch: MonkeyPatch) -> None:
+def test_gui_shows_warning_for_empty_market_response(
+    monkeypatch: MonkeyPatch,
+    qapp: QApplication,  # noqa: ARG001
+) -> None:
     empty_data = {
         "core": {"primary": "chaos", "items": [], "rates": {}, "secondary": "divine"},
         "lines": [],
     }
 
     class FakeStore:
-        def get_data(self, _game: int, league: str, *, update: bool) -> dict:  # noqa: ARG002
+        def get_data(self, game: int, league: str, *, update: bool) -> dict:  # noqa: ARG002
             return empty_data
 
     from poemarcut import settings  # noqa: PLC0415
