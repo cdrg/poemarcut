@@ -488,7 +488,8 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     time.sleep(0.6)  # long delay is needed for the dropdown to be ready for whatever reason
 
                     # typing to select from dropdown doesn't work well with more than ~3 characters, since there's a timeout
-                    if len(prefix) <= 3:  # noqa: PLR2004
+                    # as of PoE2 ~0.5.3, GGG broke typing to select currencies in the dropdown, so skip to arrow keys for PoE2
+                    if len(prefix) <= 3 and game != 2:  # noqa: PLR2004
                         pyautogui.write(prefix, interval=0.1)
                     # for longer prefixes, we need to determine the numerical difference of the indexes and then use arrow keys
                     elif last_cur_type is not None:
