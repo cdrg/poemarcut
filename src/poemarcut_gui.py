@@ -1208,6 +1208,9 @@ class PoEMarcutGUI(QMainWindow):
         elif setting == "active_league":
             with QSignalBlocker(self.active_league_le):
                 self.active_league_le.setText(str(value))
+            with QSignalBlocker(self.league_combo):
+                self.populate_league_combo()
+            self.populate_currency_mappings()
         elif setting == "autoupdate":
             with QSignalBlocker(self.autoupdate_cb):
                 self.autoupdate_cb.setChecked(bool(value))
@@ -1661,15 +1664,34 @@ class PoEMarcutGUI(QMainWindow):
                     self._updating_currency_values = False
 
         self.currency_list.clear()  # clear existing items before repopulating
+        if not currencies:
+            return
+
+        game = currency_settings.active_game
+        league = currency_settings.active_league
+
+        try:
+            data = currency.store.get_data(game=game, league=league, update=currency_settings.autoupdate)
+        except (LookupError, ValueError, TypeError):
+            data = {}
+
+        if isinstance(data, dict) and data.get("lines") == [] and isinstance(data.get("core"), dict):
+            warning_item = QListWidgetItem(f"No currency data was returned for league {league}.")
+            warning_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            warning_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+            self.currency_list.addItem(warning_item)
+            try:
+                self._update_currency_update_label()
+            except (LookupError, TypeError, ValueError):
+                with contextlib.suppress(Exception):
+                    self.currency_lastupdate_label.setText("")
+            return
+
         # Add a non-interactive header item at the top of the list
         header = QListWidgetItem("Configured currency conversions:")
         header.setFlags(Qt.ItemFlag.NoItemFlags)
         header.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
         self.currency_list.addItem(header)
-        if not currencies:
-            return
-        game = currency_settings.active_game
-        league = currency_settings.active_league
         for idx, c in enumerate(currencies):
             # Compute rate of this currency in terms of the next currency (if any)
             rate: float | None = None

@@ -4,12 +4,15 @@ import logging
 import time
 from math import ceil
 from pathlib import Path
+from typing import TypeGuard
 
 import requests
 import yaml
 
 from poemarcut import __version__
 from poemarcut.constants import S_IN_HOUR
+
+YamlDict = dict[str, object]
 
 USER_AGENT = "poemarcut/" + __version__ + " (+https://github.com/cdrg/poemarcut)"
 
@@ -25,6 +28,52 @@ POE2_LEAGUES_API_URL = "https://www.pathofexile.com/api/trade2/data/leagues"
 # poe.ninja repackages the GGG currency exchange API. Same interface for both games.
 POE1_CURRENCY_API_URL = "https://poe.ninja/poe1/api/economy/exchange/current/overview"
 POE2_CURRENCY_API_URL = "https://poe.ninja/poe2/api/economy/exchange/current/overview"
+
+
+def _response_has_expected_schema(data: object) -> TypeGuard[YamlDict]:
+    if not isinstance(data, dict):
+        return False
+
+    core = data.get("core")
+    if not isinstance(core, dict):
+        return False
+
+    lines = data.get("lines")
+    if not isinstance(lines, list):
+        return False
+
+    primary = core.get("primary")
+    return primary is not None
+
+
+def _is_empty_market_response(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+
+    lines = data.get("lines")
+    if not isinstance(lines, list):
+        return False
+
+    return len(lines) == 0
+
+
+def _has_primary_price_line(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+
+    core = data.get("core")
+    if not isinstance(core, dict):
+        return False
+
+    lines = data.get("lines")
+    if not isinstance(lines, list):
+        return False
+
+    primary = core.get("primary")
+    if primary is None:
+        return False
+
+    return any(isinstance(line, dict) and line.get("id") == primary for line in lines)
 
 
 logger = logging.getLogger(__name__)
@@ -67,7 +116,7 @@ class CurrencyStore:
         return self.currency_data_by_league[league]
 
 
-def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) -> dict:  # noqa: C901
+def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) -> dict:  # noqa: C901, PLR0912, PLR0915
     """Fetch currency prices from cache file or poe.ninja currency API.
 
     GGG only updates the currency exchange API once per hour, so there's no reason to fetch more often than that.
@@ -102,12 +151,20 @@ def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) ->
             data = {}
 
         # Check if cache data is valid by verifying primary currency exists in lines.
-        # If valid, add mtime to data and return. If not, will proceed to attempt to fetch from API.
-        primary = data.get("core", {}).get("primary")
-        if "lines" in data and primary is not None and any(line.get("id") == primary for line in data.get("lines", [])):
+        # If valid, add mtime to data and return.
+        if _has_primary_price_line(data):
             data["mtime"] = cache_mtime
             logger.info(
                 "Currency prices for PoE%s '%s' retrieved from cache (cache age: %.1f minutes)",
+                game,
+                league,
+                (time.time() - cache_mtime) / 60,
+            )
+            return data
+        if _is_empty_market_response(data):
+            data["mtime"] = cache_mtime
+            logger.info(
+                "Empty market response for PoE%s '%s' retrieved from cache (cache age: %.1f minutes)",
                 game,
                 league,
                 (time.time() - cache_mtime) / 60,
@@ -153,7 +210,17 @@ def _retrieve_currency_prices(game: int, league: str, *, update: bool = True) ->
         logger.exception("Error parsing JSON from poe.ninja response")
         data = {}
 
-    if "lines" not in data or "core" not in data or data["core"].get("primary") is None:
+    if not _response_has_expected_schema(data):
+        logger.error("Invalid data received from API for PoE%s '%s': %s", game, league, data)
+        return data
+
+    if _is_empty_market_response(data):
+        logger.warning(
+            "Empty market response received for PoE%s '%s'; no currency lines returned.",
+            game,
+            league,
+        )
+    elif not _has_primary_price_line(data):
         logger.error("Invalid data received from API for PoE%s '%s': %s", game, league, data)
         return data
 

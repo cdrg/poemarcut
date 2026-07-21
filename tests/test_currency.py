@@ -1,0 +1,52 @@
+import logging
+from pathlib import Path
+
+import pytest
+from _pytest.monkeypatch import MonkeyPatch
+
+from poemarcut import currency
+
+tmp_yaml = "tmpstandard-1.yaml"
+
+
+def test_empty_market_response_detected(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: MonkeyPatch
+) -> None:
+    cache_file = tmp_path / tmp_yaml
+    cache_file.write_text(
+        "core:\n  items: []\n  primary: chaos\n  rates: {}\n  secondary: divine\nitems: []\nlines: []\n",
+        encoding="utf-8",
+    )
+
+    caplog.set_level(logging.INFO)
+    monkeypatch.chdir(tmp_path)
+    result = currency._retrieve_currency_prices(game=1, league="tmpstandard", update=False)  # noqa: SLF001
+
+    assert result.get("lines") == []
+    assert result.get("core", {}).get("primary") == "chaos"
+    assert "Empty market response" in caplog.text
+
+
+def test_gui_shows_warning_for_empty_market_response(monkeypatch: MonkeyPatch) -> None:
+    empty_data = {
+        "core": {"primary": "chaos", "items": [], "rates": {}, "secondary": "divine"},
+        "lines": [],
+    }
+
+    class FakeStore:
+        def get_data(self, _game: int, league: str, *, update: bool) -> dict:  # noqa: ARG002
+            return empty_data
+
+    from poemarcut import settings  # noqa: PLC0415
+    from poemarcut_gui import PoEMarcutGUI  # noqa: PLC0415
+
+    window = PoEMarcutGUI()
+    window.settings_manager = settings.settings_manager
+    monkeypatch.setattr(currency, "store", FakeStore())
+
+    window.populate_currency_mappings()
+
+    assert window.currency_list.count() == 1
+    item = window.currency_list.item(0)
+    assert item is not None
+    assert item.text() == "No currency data was returned for league tmpstandard."
