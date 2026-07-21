@@ -37,4 +37,5 @@ per-file-ignores = { "tests/*" = [
     "D103",    # "missing docstring in public function"
     "PLR2004", # "magic numbers"
     "S101",    # "assert"
+    "SLF001",  # "private member accessed"
 ] }

@@ -970,6 +970,8 @@ class PoEMarcutGUI(QMainWindow):
             settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), value)
             self._settings_cache = settings_obj
+            if category.lower() == "logic" and setting.lower() in {"discount_percent", "max_actual_discount"}:
+                self.populate_currency_mappings()
             self._schedule_persist_settings()
         except ValueError:
             pass  # Invalid int input; ignore
@@ -1086,6 +1088,10 @@ class PoEMarcutGUI(QMainWindow):
         except (OSError, settings.YAMLError, settings.ValidationError, TypeError, ValueError):
             logger.exception("Failed to persist cached settings: %s")
 
+    def _refresh_settings_cache(self) -> None:
+        """Refresh the cached settings object after direct persistence."""
+        self._settings_cache = self.settings_manager.settings
+
     def _on_setting_changed(self, full_field: str, value: object) -> None:
         """Slot called when a setting is changed; updates the corresponding widget.
 
@@ -1145,9 +1151,11 @@ class PoEMarcutGUI(QMainWindow):
         if setting == "discount_percent":
             with QSignalBlocker(self.discount_percent_le):
                 self.discount_percent_le.setText(str(value))
+            self.populate_currency_mappings()
         elif setting == "max_actual_discount":
             with QSignalBlocker(self.max_actual_discount_le):
                 self.max_actual_discount_le.setText(str(value))
+            self.populate_currency_mappings()
         elif setting == "enter_after_calcprice":
             with QSignalBlocker(self.enter_after_cb):
                 self.enter_after_cb.setChecked(bool(value))
@@ -1658,6 +1666,7 @@ class PoEMarcutGUI(QMainWindow):
                     else:
                         new_settings.currency.poe2currencies = updated_map
                     self.settings_manager.set_settings(new_settings)
+                    self._refresh_settings_cache()
                 except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
                     logger.exception("Failed to persist updated currency mapping from exchange rates")
                 finally:
@@ -1955,6 +1964,7 @@ class PoEMarcutGUI(QMainWindow):
                         new_settings.currency.active_game = game
                         new_settings.currency.active_league = league
                     self.settings_manager.set_settings(new_settings)
+                    self._refresh_settings_cache()
                 except (AttributeError, TypeError, ValueError, settings.ValidationError):
                     # Fall back to assigning without delay_validation on a fresh copy
                     try:
@@ -1967,6 +1977,7 @@ class PoEMarcutGUI(QMainWindow):
                         new_settings.currency.active_game = game
                         new_settings.currency.active_league = league
                         self.settings_manager.set_settings(new_settings)
+                        self._refresh_settings_cache()
                     except (AttributeError, TypeError, ValueError, settings.ValidationError):
                         logger.exception("Failed to persist active game/league from league_combo selection (fallback)")
             except (AttributeError, TypeError, ValueError, settings.ValidationError):
@@ -2189,10 +2200,12 @@ class PoEMarcutGUI(QMainWindow):
                     ):
                         new_settings.currency.active_league = sorted(new_leagues)[0]
                 self.settings_manager.set_settings(new_settings)
+                self._refresh_settings_cache()
             except (AttributeError, TypeError, ValueError):
                 # Fallback to previous behavior if delay_validation isn't available or fails
                 setattr(new_settings.currency, setting_attr, new_leagues)
                 self.settings_manager.set_settings(new_settings)
+                self._refresh_settings_cache()
         except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
             logger.exception("Failed to update %s from get_poe%d_leagues", setting_attr, game)
         # Always refresh UI widgets afterwards
@@ -2237,9 +2250,11 @@ class PoEMarcutGUI(QMainWindow):
                     ):
                         new_settings.currency.active_league = sorted(new_leagues)[0]
                 self.settings_manager.set_settings(new_settings)
+                self._refresh_settings_cache()
             except (AttributeError, TypeError, ValueError):
                 setattr(new_settings.currency, setting_attr, new_leagues)
                 self.settings_manager.set_settings(new_settings)
+                self._refresh_settings_cache()
         except (AttributeError, TypeError, ValueError, settings.ValidationError, RuntimeError, OSError):
             logger.exception("Failed to persist %s from background league fetch", setting_attr)
 
