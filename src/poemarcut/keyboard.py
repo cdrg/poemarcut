@@ -13,6 +13,7 @@ import pyperclip
 from pynput.keyboard import Key, KeyCode, Listener
 
 from poemarcut import constants, currency, settings
+from poemarcut.focus import is_poe_game_window
 from poemarcut.item import Item, parse_int_price
 from poemarcut.logic import (
     compute_discounted_price_and_actual,
@@ -257,6 +258,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
     global _last_price, _last_type
 
     if key is None:
+        return True
+
+    if not is_poe_game_window():
         return True
 
     try:

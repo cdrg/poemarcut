@@ -131,3 +131,24 @@ POE2_MERCHANT_CURRENCY_PREFIXES = MappingProxyType(
         "wisdom": "s",
     }
 )
+
+# List of known Path of Exile 1 and 2 Windows game client executable basenames, including standalone,
+# Steam, Epic Games Store, and Kakao Games launcher versions. Normalized to lowercase.
+POE_GAME_EXECUTABLES = frozenset(
+    {
+        "pathofexile.exe",
+        "pathofexile_x64.exe",
+        "pathofexilesteam.exe",
+        "pathofexile_x64steam.exe",
+        "pathofexile_kg.exe",
+        "pathofexile_x64_kg.exe",
+        "pathofexile_egs.exe",
+        "pathofexile_x64_egs.exe",
+        "pathofexile2.exe",
+        "pathofexile2_x64.exe",
+        "pathofexile2steam.exe",
+        "pathofexile2_x64steam.exe",
+        "pathofexile2_egs.exe",
+        "pathofexile2_x64_egs.exe",
+    }
+)
