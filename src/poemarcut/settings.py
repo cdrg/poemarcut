@@ -89,6 +89,15 @@ class LogicSettings(BaseModel):
         le=99,
         description="Maximum allowed discount percent. If the calculated discount would exceed this percentage, the price will be converted or not be adjusted",
     )
+    minimum_discount: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional minimum discount in the selected currency. Disabled if empty.",
+    )
+    minimum_discount_currency: str = Field(
+        default="chaos",
+        description="The currency for the minimum discount amount.",
+    )
     enter_after_calcprice: bool = Field(
         default=True,
         description="True: press 'enter' key after calculating and pasting the new price. False: do not press 'enter' automatically",

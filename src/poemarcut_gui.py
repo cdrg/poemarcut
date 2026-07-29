@@ -11,7 +11,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import MappingProxyType
 
-from PyQt6.QtCore import QEvent, QObject, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QRegularExpression, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QCloseEvent,
@@ -20,6 +20,7 @@ from PyQt6.QtGui import (
     QIcon,
     QIntValidator,
     QMoveEvent,
+    QRegularExpressionValidator,
     QResizeEvent,
     QValidator,
 )
@@ -418,7 +419,7 @@ class PoEMarcutGUI(QMainWindow):
 
         ## set up components for Keys settings fields
         keys_settings: settings.KeySettings = settings_man.settings.keys
-        keys_settings_header: QLabel = QLabel("Keys settings")
+        keys_settings_header: QLabel = QLabel("Keys settings (press 'enter')")
         keys_settings_header.setStyleSheet(poe_header_style)
         leftthird_layout.addWidget(keys_settings_header, row_idx, 0, 1, 2)
         row_idx += 1
@@ -467,7 +468,7 @@ class PoEMarcutGUI(QMainWindow):
         row_idx += 1
 
         # max actual discount field (percent)
-        maf_setting_label: QLabel = QLabel("Max discount")
+        maf_setting_label: QLabel = QLabel("Max discount %")
         maf_field_info = logic_settings.__class__.model_fields.get("max_actual_discount")
         maf_setting_label.setToolTip((maf_field_info.description if maf_field_info is not None else "") or "")
         self.max_actual_discount_le: QLineEdit = QLineEdit(str(logic_settings.max_actual_discount))
@@ -482,6 +483,41 @@ class PoEMarcutGUI(QMainWindow):
         leftthird_layout.addWidget(maf_setting_label, row_idx, 0)
         leftthird_layout.addWidget(self.max_actual_discount_le, row_idx, 1)
         row_idx += 1
+
+        # minimum discount field (absolute units)
+        md_setting_label: QLabel = QLabel("Min discount")
+        md_field_info = logic_settings.__class__.model_fields.get("minimum_discount")
+        md_setting_label.setToolTip((md_field_info.description if md_field_info is not None else "") or "")
+        self.minimum_discount_le: QLineEdit = QLineEdit(
+            "" if logic_settings.minimum_discount is None else str(logic_settings.minimum_discount)
+        )
+        self.minimum_discount_le.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r"^$|[1-9][0-9]*$"), parent=self.minimum_discount_le)
+        )
+        self.minimum_discount_le.returnPressed.connect(
+            partial(self.process_qle_int, "Logic", "minimum_discount", self.minimum_discount_le)
+        )
+        self.minimum_discount_le.editingFinished.connect(
+            partial(self.process_qle_int, "Logic", "minimum_discount", self.minimum_discount_le)
+        )
+        leftthird_layout.addWidget(md_setting_label, row_idx, 0)
+        leftthird_layout.addWidget(self.minimum_discount_le, row_idx, 1)
+        row_idx += 1
+
+        # minimum discount currency field
+        mdc_setting_label: QLabel = QLabel("Min disc cur")
+        mdc_field_info = logic_settings.__class__.model_fields.get("minimum_discount_currency")
+        mdc_setting_label.setToolTip((mdc_field_info.description if mdc_field_info is not None else "") or "")
+        self.minimum_discount_currency_combo: QComboBox = QComboBox()
+        self.minimum_discount_currency_combo.currentIndexChanged.connect(
+            partial(self.process_qcombo, "Logic", "minimum_discount_currency", self.minimum_discount_currency_combo)
+        )
+        leftthird_layout.addWidget(mdc_setting_label, row_idx, 0)
+        leftthird_layout.addWidget(self.minimum_discount_currency_combo, row_idx, 1)
+        row_idx += 1
+
+        # initialize minimum discount currency options from configured currencies
+        self._populate_minimum_discount_currency_options()
 
         # enter after calcprice field
         eac_setting_label: QLabel = QLabel("Press enter")
@@ -966,17 +1002,48 @@ class PoEMarcutGUI(QMainWindow):
 
         """
         try:
-            value = int(qle.text())
+            text = qle.text()
+            if category.lower() == "logic" and setting.lower() == "minimum_discount" and text == "":
+                value = None
+            else:
+                value = int(text)
             settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
             setattr(getattr(settings_obj, category.lower()), setting.lower(), value)
             self._settings_cache = settings_obj
-            if category.lower() == "logic" and setting.lower() in {"discount_percent", "max_actual_discount"}:
+            if category.lower() == "logic" and setting.lower() in {
+                "discount_percent",
+                "max_actual_discount",
+                "minimum_discount",
+            }:
                 self.populate_currency_mappings()
             self._schedule_persist_settings()
         except ValueError:
             pass  # Invalid int input; ignore
         except (AttributeError, TypeError, settings.ValidationError):
             logger.exception("Failed to set int setting %s.%s", category, setting)
+
+    def process_qcombo(self, category: str, setting: str, combo: QComboBox) -> None:
+        """Process input for a specific combo box setting.
+
+        Args:
+            category (str): Settings category name.
+            setting (str): Settings field name to update.
+            combo (QComboBox): The combo box widget with the new selection.
+
+        Returns:
+            None
+
+        """
+        try:
+            selected = combo.currentText()
+            settings_obj = getattr(self, "_settings_cache", None) or self.settings_manager.settings
+            setattr(getattr(settings_obj, category.lower()), setting.lower(), selected)
+            self._settings_cache = settings_obj
+            if category.lower() == "logic" and setting.lower() == "minimum_discount_currency":
+                self.populate_currency_mappings()
+            self._schedule_persist_settings()
+        except (AttributeError, TypeError, settings.ValidationError):
+            logger.exception("Failed to set combo setting %s.%s", category, setting)
 
     def process_qcb(self, category: str, setting: str, checkbox: QCheckBox) -> None:
         """Process input for a specific boolean setting.
@@ -1060,6 +1127,9 @@ class PoEMarcutGUI(QMainWindow):
                 setattr(getattr(settings_obj, category.lower()), setting.lower(), mapping)
             else:
                 setattr(getattr(settings_obj, category.lower()), setting.lower(), items)
+
+            if category.lower() == "currency" and setting.lower() in {"poe1currencies", "poe2currencies"}:
+                self._populate_minimum_discount_currency_options()
 
             # Cache and debounce persisting to avoid synchronous disk I/O on the UI thread
             self._settings_cache = settings_obj
@@ -1156,6 +1226,14 @@ class PoEMarcutGUI(QMainWindow):
             with QSignalBlocker(self.max_actual_discount_le):
                 self.max_actual_discount_le.setText(str(value))
             self.populate_currency_mappings()
+        elif setting == "minimum_discount":
+            with QSignalBlocker(self.minimum_discount_le):
+                self.minimum_discount_le.setText("" if value is None else str(value))
+            self.populate_currency_mappings()
+        elif setting == "minimum_discount_currency":
+            with QSignalBlocker(self.minimum_discount_currency_combo):
+                self._set_minimum_discount_currency_selection(str(value))
+            self.populate_currency_mappings()
         elif setting == "enter_after_calcprice":
             with QSignalBlocker(self.enter_after_cb):
                 self.enter_after_cb.setChecked(bool(value))
@@ -1202,22 +1280,26 @@ class PoEMarcutGUI(QMainWindow):
                 val = value or []
                 items = list(val) if isinstance(val, Iterable) else []
                 self._populate_list_widget(self.p1c_list_widget, items, "Currency", "poe1currencies")
+            self._populate_minimum_discount_currency_options()
             self.populate_currency_mappings()
         elif setting == "poe2currencies":
             with QSignalBlocker(self.p2c_list_widget):
                 val = value or []
                 items = list(val) if isinstance(val, Iterable) else []
                 self._populate_list_widget(self.p2c_list_widget, items, "Currency", "poe2currencies")
+            self._populate_minimum_discount_currency_options()
             self.populate_currency_mappings()
         elif setting == "active_game":
             with QSignalBlocker(self.active_game_le):
                 self.active_game_le.setText(str(value))
+            self._populate_minimum_discount_currency_options()
             self.populate_currency_mappings()
         elif setting == "active_league":
             with QSignalBlocker(self.active_league_le):
                 self.active_league_le.setText(str(value))
             with QSignalBlocker(self.league_combo):
                 self.populate_league_combo()
+            self._populate_minimum_discount_currency_options()
             self.populate_currency_mappings()
         elif setting == "autoupdate":
             with QSignalBlocker(self.autoupdate_cb):
@@ -1618,6 +1700,35 @@ class PoEMarcutGUI(QMainWindow):
         layout.addStretch()
         return container
 
+    def _populate_minimum_discount_currency_options(self) -> None:
+        """Populate the minimum discount currency selector from configured currencies."""
+        currency_settings = self.settings_manager.settings.currency
+        raw_currencies = (
+            currency_settings.poe1currencies if currency_settings.active_game == 1 else currency_settings.poe2currencies
+        )
+        currencies = list(raw_currencies.keys())
+
+        current_value = getattr(self, "minimum_discount_currency_combo", None)
+        previous = None
+        if current_value is not None:
+            previous = current_value.currentText()
+
+        with QSignalBlocker(self.minimum_discount_currency_combo):
+            self.minimum_discount_currency_combo.clear()
+            for cur in currencies:
+                self.minimum_discount_currency_combo.addItem(cur)
+            if currency_settings.active_game and currency_settings.active_game in {1, 2}:
+                desired = self.settings_manager.settings.logic.minimum_discount_currency
+                self._set_minimum_discount_currency_selection(desired)
+            elif previous is not None:
+                self._set_minimum_discount_currency_selection(previous)
+
+    def _set_minimum_discount_currency_selection(self, currency_value: str) -> None:
+        """Set the minimum discount currency combo to the given value if it exists."""
+        idx = self.minimum_discount_currency_combo.findText(currency_value)
+        if idx >= 0:
+            self.minimum_discount_currency_combo.setCurrentIndex(idx)
+
     def populate_currency_mappings(self) -> None:  # noqa: C901, PLR0912, PLR0915
         """Populate the main currency list for the currently active game.
 
@@ -1727,9 +1838,16 @@ class PoEMarcutGUI(QMainWindow):
                 adj: int = int(self.settings_manager.settings.logic.max_actual_discount)
             except (AttributeError, TypeError, ValueError):
                 adj = 0
+            min_discount = self.settings_manager.settings.logic.minimum_discount
+            min_currency = self.settings_manager.settings.logic.minimum_discount_currency
             arrow_text = "↓"
+            parts: list[str] = []
             if adj:
-                arrow_text = f"↓ if 1 or discount >{adj}%"
+                parts.append(f"discount >{adj}%")
+            if min_discount is not None and min_currency:
+                parts.append(f"min {int(min_discount)} {min_currency}")
+            if parts:
+                arrow_text = "↓ if 1 or " + ", ".join(parts)
 
             arrow_widget = QWidget()
             arrow_layout = QHBoxLayout(arrow_widget)
@@ -1769,6 +1887,8 @@ class PoEMarcutGUI(QMainWindow):
                         currencies=currencies,
                         discount_percent=adj_discount,
                         max_actual_discount=max_actual_discount,
+                        minimum_discount=self.settings_manager.settings.logic.minimum_discount,
+                        minimum_discount_currency=self.settings_manager.settings.logic.minimum_discount_currency,
                         get_exchange_rate=_get_rate,
                     )
 
@@ -2128,6 +2248,7 @@ class PoEMarcutGUI(QMainWindow):
                 with QSignalBlocker(list_widget):
                     updated = getattr(self.settings_manager.settings.currency, setting_field) or {}
                     self._populate_list_widget(list_widget, list(updated.keys()), "Currency", setting_field)
+                self._populate_minimum_discount_currency_options()
                 self.populate_currency_mappings()
             except (AttributeError, RuntimeError, TypeError, ValueError):
                 logger.exception("Failed to refresh currency UI for %s after adding %s", setting_field, chosen_key)

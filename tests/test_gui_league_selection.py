@@ -4,7 +4,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QListWidgetItem
 
 
 class FakeThread:
@@ -88,3 +88,45 @@ def test_max_actual_discount_change_refreshes_currency_preview(
 
     assert window.max_actual_discount_le.text() == "40"
     assert refresh_calls == [None]
+
+
+def test_clearing_minimum_discount_disables_and_persists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,  # noqa: ARG001
+) -> None:
+    _settings_mod, gui_mod = _import_gui_in_tmp(tmp_path, monkeypatch)
+    monkeypatch.setattr(gui_mod.threading, "Thread", FakeThread)
+
+    window = gui_mod.PoEMarcutGUI()
+    window.minimum_discount_le.setText("10")
+    window.process_qle_int("Logic", "minimum_discount", window.minimum_discount_le)
+    window._flush_cached_settings()
+
+    window.minimum_discount_le.clear()
+
+    assert window.minimum_discount_le.hasAcceptableInput()
+
+    window.process_qle_int("Logic", "minimum_discount", window.minimum_discount_le)
+    window._flush_cached_settings()
+
+    assert window.settings_manager.settings.logic.minimum_discount is None
+
+
+def test_currency_list_update_refreshes_minimum_discount_currency_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,  # noqa: ARG001
+) -> None:
+    _settings_mod, gui_mod = _import_gui_in_tmp(tmp_path, monkeypatch)
+    monkeypatch.setattr(gui_mod.threading, "Thread", FakeThread)
+
+    window = gui_mod.PoEMarcutGUI()
+    window.p1c_list_widget.addItem(QListWidgetItem("exalted"))
+    window.process_qlw("Currency", "poe1currencies", window.p1c_list_widget)
+
+    options = [
+        window.minimum_discount_currency_combo.itemText(index)
+        for index in range(window.minimum_discount_currency_combo.count())
+    ]
+    assert "exalted" in options

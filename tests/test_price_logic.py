@@ -103,6 +103,127 @@ def test_conversion_chain_with_impossible_low_max_fails() -> None:
     assert actual > 1.0
 
 
+def test_minimum_discount_applies_when_larger_than_percent() -> None:
+    currencies = ["chaos"]
+
+    def get_rate(*, from_currency: str, to_currency: str) -> float:  # noqa: ARG001
+        msg = "should not be called"
+        raise AssertionError(msg)
+
+    discounted, cur, actual = logic.convert_and_compute_price(
+        original_units=11,
+        last_cur_type="chaos",
+        currencies=currencies,
+        discount_percent=10,
+        max_actual_discount=50,
+        minimum_discount=10,
+        minimum_discount_currency="chaos",
+        get_exchange_rate=get_rate,
+    )
+
+    assert discounted == 1
+    assert cur == "chaos"
+    assert pytest.approx(actual, rel=1e-9) == pytest.approx(90.9090909090909, rel=1e-9)
+
+
+def test_minimum_discount_overrides_max_actual_discount() -> None:
+    currencies = ["chaos"]
+
+    def get_rate(*, from_currency: str, to_currency: str) -> float:  # noqa: ARG001
+        msg = "should not be called"
+        raise AssertionError(msg)
+
+    discounted, cur, actual = logic.convert_and_compute_price(
+        original_units=3,
+        last_cur_type="chaos",
+        currencies=currencies,
+        discount_percent=10,
+        max_actual_discount=10,
+        minimum_discount=2,
+        minimum_discount_currency="chaos",
+        get_exchange_rate=get_rate,
+    )
+
+    assert discounted == 1
+    assert cur == "chaos"
+    assert pytest.approx(actual, rel=1e-9) == pytest.approx(66.66666666666666, rel=1e-9)
+
+
+def test_minimum_discount_converts_currency_when_required() -> None:
+    currencies = ["divine", "chaos"]
+    rates = {
+        ("divine", "chaos"): 100.0,
+        ("chaos", "divine"): 0.01,
+    }
+
+    def get_rate(*, from_currency: str, to_currency: str) -> float:
+        return rates[(from_currency, to_currency)]
+
+    discounted, cur, actual = logic.convert_and_compute_price(
+        original_units=1,
+        last_cur_type="divine",
+        currencies=currencies,
+        discount_percent=10,
+        max_actual_discount=50,
+        minimum_discount=10,
+        minimum_discount_currency="chaos",
+        get_exchange_rate=get_rate,
+    )
+
+    assert discounted == 90
+    assert cur == "chaos"
+    assert pytest.approx(actual, rel=1e-9) == pytest.approx(10.0, rel=1e-9)
+
+
+def test_percentage_discount_wins_over_smaller_lower_currency_minimum() -> None:
+    currencies = ["divine", "chaos"]
+    rates = {
+        ("divine", "chaos"): 160.0,
+        ("chaos", "divine"): 1 / 160,
+    }
+
+    def get_rate(*, from_currency: str, to_currency: str) -> float:
+        return rates[(from_currency, to_currency)]
+
+    discounted, cur, actual = logic.convert_and_compute_price(
+        original_units=18,
+        last_cur_type="divine",
+        currencies=currencies,
+        discount_percent=10,
+        max_actual_discount=50,
+        minimum_discount=10,
+        minimum_discount_currency="chaos",
+        get_exchange_rate=get_rate,
+    )
+
+    assert discounted == 16
+    assert cur == "divine"
+    assert pytest.approx(actual, rel=1e-9) == pytest.approx(2 * 100.0 / 18, rel=1e-9)
+
+
+def test_minimum_discount_enforces_floor_for_low_prices() -> None:
+    currencies = ["chaos"]
+
+    def get_rate(*, from_currency: str, to_currency: str) -> float:  # noqa: ARG001
+        msg = "should not be called"
+        raise AssertionError(msg)
+
+    discounted, cur, actual = logic.convert_and_compute_price(
+        original_units=4,
+        last_cur_type="chaos",
+        currencies=currencies,
+        discount_percent=10,
+        max_actual_discount=50,
+        minimum_discount=10,
+        minimum_discount_currency="chaos",
+        get_exchange_rate=get_rate,
+    )
+
+    assert discounted == 1
+    assert cur == "chaos"
+    assert pytest.approx(actual, rel=1e-9) == pytest.approx(75.0, rel=1e-9)
+
+
 def test_convert_and_compute_handles_lookuperror_from_get_rate() -> None:
     """If the exchange-rate callable raises LookupError, the helper should gracefully return (None, None, last_actual) rather than raising.
 

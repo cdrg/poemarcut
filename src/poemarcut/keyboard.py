@@ -401,7 +401,10 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     logger.error("Parsed price is less than 1 (%d). Aborting price calculation.", copied_price)
                     return True  # do nothing if current price is less than 1
 
-                # if we don't know the currency type and assume_highest is enabled, assume the currency type is the highest
+                # If we don't know the currency type and assume_highest is enabled,
+                # use the highest configured currency.
+                minimum_discount = settings_manager.settings.logic.minimum_discount
+                minimum_discount_currency = settings_manager.settings.logic.minimum_discount_currency
                 if not last_cur_type and settings_manager.settings.currency.assume_highest_currency:
                     last_price = copied_price
                     last_cur_type = currencies[0] if currencies else None
@@ -411,9 +414,41 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                     copied_price, discount_percent
                 )
                 next_cur_type: str | None = None
+                minimum_discount_applied = False
+                minimum_discount = settings_manager.settings.logic.minimum_discount
+                minimum_discount_currency = settings_manager.settings.logic.minimum_discount_currency
+                if minimum_discount is not None and minimum_discount_currency:
+                    amount_units = int(last_price or copied_price)
+
+                    def _get_rate(*, from_currency: str, to_currency: str) -> float:
+                        return currency.get_exchange_rate(
+                            game=game,
+                            league=league,
+                            from_currency=from_currency,
+                            to_currency=to_currency,
+                            autoupdate=settings_manager.settings.currency.autoupdate,
+                        )
+
+                    converted_price, converted_currency, converted_actual = convert_and_compute_price(
+                        original_units=amount_units,
+                        last_cur_type=last_cur_type,
+                        currencies=currencies,
+                        discount_percent=discount_percent,
+                        max_actual_discount=max_actual_discount,
+                        minimum_discount=minimum_discount,
+                        minimum_discount_currency=minimum_discount_currency,
+                        get_exchange_rate=_get_rate,
+                    )
+                    if converted_price is not None:
+                        discounted_price_candidate = converted_price
+                        actual_discount = converted_actual
+                        minimum_discount_applied = True
+                        if converted_currency != last_cur_type:
+                            next_cur_type = converted_currency
+
                 # if we can't go lower because price is 1 or the calculated percent discount
                 # exceeds the allowed maximum, bail out or try converting to the next currency
-                if copied_price == 1 or actual_discount > float(max_actual_discount):
+                if (copied_price == 1 or actual_discount > float(max_actual_discount)) and not minimum_discount_applied:
                     # and if we know the copied currency type and it's in our list of convertible currencies and it's not the final currency
                     if (
                         last_cur_type is not None
@@ -438,6 +473,8 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
                             currencies=currencies,
                             discount_percent=discount_percent,
                             max_actual_discount=max_actual_discount,
+                            minimum_discount=minimum_discount,
+                            minimum_discount_currency=minimum_discount_currency,
                             get_exchange_rate=_get_rate,
                         )
 
