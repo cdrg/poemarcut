@@ -345,9 +345,9 @@ class PoEMarcutGUI(QMainWindow):
     def moveEvent(self, event: QMoveEvent) -> None:  # type: ignore[override]  # noqa: N802
         """Track window moves and persist position to settings (debounced)."""
         try:
-            # Use frameGeometry to include the window frame/title bar so
-            # persisted position reflects the visible outer window.
-            geom = self.frameGeometry()
+            # Use client-area geometry so persisted position round-trips through
+            # setGeometry(x, y, width, height) without being offset by the title bar.
+            geom = self.geometry()
             if getattr(self, "_settings_cache", None) is not None:
                 try:
                     self._settings_cache.gui.position.x = int(geom.x())
