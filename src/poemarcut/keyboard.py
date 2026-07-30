@@ -324,10 +324,9 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             and binding_matches(event_key=key, binding=copyitem_key)
         ):
             logger.info("Attempting to extract price and currency type from hovered item.")
-            # Need to hold alt beforehand to prevent item info from being pinned in 1 and 2 now
-            # Send ctrl+alt+c to copy hovered item text to clipboard
-            with pyautogui.hold("alt"):
-                pyautogui.hotkey("ctrl", "alt", "c")
+            # Former "advanced item copy" ctrl+alt+c is now standard on ctrl+c on both PoE1 and PoE2.
+            # Send ctrl+c to copy hovered item text to clipboard
+            pyautogui.hotkey("ctrl", "c")
 
             item = Item.from_text(text=pyperclip.paste())
             if item is not None and item.note is not None:
