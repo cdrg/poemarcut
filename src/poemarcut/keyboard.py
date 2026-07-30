@@ -324,13 +324,11 @@ def on_release(  # noqa: C901, PLR0911, PLR0912, PLR0915
             and binding_matches(event_key=key, binding=copyitem_key)
         ):
             logger.info("Attempting to extract price and currency type from hovered item.")
-            # If game is 2, hold alt beforehand to prevent item info from being pinned
+            # Need to hold alt beforehand to prevent item info from being pinned in 1 and 2 now
             # Send ctrl+alt+c to copy hovered item text to clipboard
-            if game == 2:  # noqa: PLR2004
-                with pyautogui.hold("alt"):
-                    pyautogui.hotkey("ctrl", "alt", "c")
-            else:
+            with pyautogui.hold("alt"):
                 pyautogui.hotkey("ctrl", "alt", "c")
+
             item = Item.from_text(text=pyperclip.paste())
             if item is not None and item.note is not None:
                 logger.info(
