@@ -4,6 +4,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QListWidgetItem
 
 
@@ -69,6 +70,32 @@ def test_league_selection_updates_gui_settings_cache_after_fallback(
 
     assert window.settings_manager.settings.currency.active_league == selected_league
     assert window._settings_cache.currency.active_league == selected_league
+
+
+def test_initial_market_refresh_is_scheduled_after_window_is_shown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,  # noqa: ARG001
+) -> None:
+    _settings_mod, gui_mod = _import_gui_in_tmp(tmp_path, monkeypatch)
+    monkeypatch.setattr(gui_mod.threading, "Thread", FakeThread)
+
+    scheduled: list[tuple[int, object]] = []
+    monkeypatch.setattr(QTimer, "singleShot", lambda delay, callback: scheduled.append((delay, callback)))
+
+    window = gui_mod.PoEMarcutGUI()
+
+    assert scheduled == []
+
+    window.show()
+
+    startup_callbacks = [
+        (delay, callback)
+        for delay, callback in scheduled
+        if getattr(callback, "__func__", None) is gui_mod.PoEMarcutGUI._run_deferred_startup
+    ]
+    assert len(startup_callbacks) == 1
+    assert startup_callbacks[0][0] == 0
 
 
 def test_max_actual_discount_change_refreshes_currency_preview(

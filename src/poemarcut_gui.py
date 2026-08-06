@@ -22,6 +22,7 @@ from PyQt6.QtGui import (
     QMoveEvent,
     QRegularExpressionValidator,
     QResizeEvent,
+    QShowEvent,
     QValidator,
 )
 from PyQt6.QtWidgets import (
@@ -215,6 +216,7 @@ class PoEMarcutGUI(QMainWindow):
         self._tray_icon: QSystemTrayIcon | None = None
         self._tray_menu: QMenu | None = None
         self._tray_hotkeys_action: QAction | None = None
+        self._deferred_startup_scheduled = False
 
         self.init_ui()
 
@@ -226,15 +228,12 @@ class PoEMarcutGUI(QMainWindow):
         # Signal used to update the UI from a background thread
         self.hotkeys_listener_stopped.connect(self._on_hotkeys_listener_stopped)
 
-        # Check for GitHub update in background to avoid blocking UI
+        # Connect signals before starting deferred background work.
         try:
-            # connect signal to slot so updates arrive on the GUI thread
             self.github_update_ready.connect(self._on_github_update_ready)
-            # connect leagues_ready to handler that updates settings/UI on GUI thread
             self.leagues_ready.connect(self._on_leagues_ready)
-            threading.Thread(target=self._check_github_update, daemon=True).start()
         except (RuntimeError, TypeError):
-            logger.exception("Failed to start background thread for github update check")
+            logger.exception("Failed to connect deferred startup signals")
 
         logger.info("PoEMarcut initialized")
 
@@ -282,7 +281,6 @@ class PoEMarcutGUI(QMainWindow):
 
         self.currency_list: QListWidget = QListWidget()
         main_layout.addWidget(self.currency_list, 3, 0, 1, 3)
-        self.populate_currency_mappings()
 
         status_layout: QHBoxLayout = QHBoxLayout()
         self.status_label: QLabel = QLabel("Status:")
@@ -342,6 +340,22 @@ class PoEMarcutGUI(QMainWindow):
         self.settings_window.setStyleSheet(self.styleSheet())
         self.settings_window.setLayout(self.side_settings_layout)
         self.settings_window.hide()  # Start hidden
+
+    def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]  # noqa: N802
+        """Schedule network-backed startup work after the window is shown."""
+        super().showEvent(event)
+        if self._deferred_startup_scheduled:
+            return
+        self._deferred_startup_scheduled = True
+        QTimer.singleShot(0, self._run_deferred_startup)
+
+    def _run_deferred_startup(self) -> None:
+        """Refresh market data and check for updates after the first display."""
+        self.populate_currency_mappings()
+        try:
+            threading.Thread(target=self._check_github_update, daemon=True).start()
+        except (RuntimeError, TypeError):
+            logger.exception("Failed to start background thread for github update check")
 
     def moveEvent(self, event: QMoveEvent) -> None:  # type: ignore[override]  # noqa: N802
         """Track window moves and persist position to settings (debounced)."""
