@@ -51,6 +51,20 @@ from poemarcut import __version__, constants, currency, keyboard, logic, setting
 logger = logging.getLogger(__name__)
 
 
+def _close_pyinstaller_splash() -> None:
+    """Close the PyInstaller splash screen if this app is frozen.
+
+    This helper is intentionally safe to call when run from a normal Python
+    interpreter where the PyInstaller splash module is unavailable.
+    """
+    try:
+        import pyi_splash  # pyright: ignore[reportMissingModuleSource] # noqa: PLC0415
+    except ModuleNotFoundError:
+        return
+    with contextlib.suppress(Exception):
+        pyi_splash.close()
+
+
 # QObject that emits the latest log message via a Qt signal.
 class LogSignalEmitter(QObject):
     """QObject emitter that sends the most recent log message to GUI slots.
@@ -347,6 +361,7 @@ class PoEMarcutGUI(QMainWindow):
         if self._deferred_startup_scheduled:
             return
         self._deferred_startup_scheduled = True
+        QTimer.singleShot(0, _close_pyinstaller_splash)
         QTimer.singleShot(0, self._run_deferred_startup)
 
     def _run_deferred_startup(self) -> None:

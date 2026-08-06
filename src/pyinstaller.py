@@ -47,6 +47,7 @@ def install() -> None:
             "--workpath=" + str(PROJ_ROOT / "build"),
             "--distpath=" + str(PROJ_ROOT / "dist"),
             "--icon=" + str(PROJ_ROOT / "assets" / "icon.ico"),
+            "--splash=" + str(PROJ_ROOT / "assets" / "splash.png"),
             "--add-data=" + str(PROJ_ROOT / "assets" / "icon.ico") + os.pathsep + "assets",
             "--add-data=" + str(PROJ_ROOT / "assets" / "gear.ico") + os.pathsep + "assets",
             "--add-data=" + str(PROJ_ROOT / "assets" / "Fontin-Bold.otf") + os.pathsep + "assets",

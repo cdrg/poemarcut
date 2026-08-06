@@ -2,10 +2,14 @@ import importlib
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QListWidgetItem
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class FakeThread:
@@ -96,6 +100,37 @@ def test_initial_market_refresh_is_scheduled_after_window_is_shown(
     ]
     assert len(startup_callbacks) == 1
     assert startup_callbacks[0][0] == 0
+
+
+def test_pyinstaller_splash_is_closed_after_window_is_shown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    qapp: QApplication,  # noqa: ARG001
+) -> None:
+    _settings_mod, gui_mod = _import_gui_in_tmp(tmp_path, monkeypatch)
+    monkeypatch.setattr(gui_mod.threading, "Thread", FakeThread)
+
+    scheduled: list[tuple[int, object]] = []
+    monkeypatch.setattr(QTimer, "singleShot", lambda delay, callback: scheduled.append((delay, callback)))
+
+    closed: list[bool] = []
+
+    def fake_close_splash() -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(gui_mod, "_close_pyinstaller_splash", fake_close_splash)
+
+    window = gui_mod.PoEMarcutGUI()
+    window.show()
+
+    close_callbacks = [(delay, callback) for delay, callback in scheduled if callback is fake_close_splash]
+    assert len(close_callbacks) == 1
+    assert close_callbacks[0][0] == 0
+    assert closed == []
+
+    # Simulate Qt firing the callback
+    cast("Callable[[], None]", close_callbacks[0][1])()
+    assert closed == [True]
 
 
 def test_max_actual_discount_change_refreshes_currency_preview(
